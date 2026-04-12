@@ -1,4 +1,5 @@
 <template>
+  <PageShell title="Paramètres — Utilisateurs" subtitle="Gestion des utilisateurs et des accès">
   <div class="space-y-6">
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <p class="text-sm text-gray-600 max-w-xl">
@@ -147,9 +148,11 @@
         </table>
       </div>
     </div>
+  </div>
+  </PageShell>
 
-    <!-- Modal ajout -->
-    <Teleport to="body">
+  <!-- Modal ajout -->
+  <Teleport to="body">
       <div
         v-if="addOpen"
         class="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-4 bg-gray-900/50"
@@ -219,12 +222,12 @@
           </form>
         </div>
       </div>
-    </Teleport>
-  </div>
+  </Teleport>
 </template>
 
 <script>
 import { ref } from 'vue'
+import PageShell from './PageShell.vue'
 
 let uidCounter = 100
 
@@ -266,6 +269,7 @@ const initialUsers = () => [
 
 export default {
   name: 'Parametres',
+  components: { PageShell },
   setup() {
     const users = ref(initialUsers())
     const addOpen = ref(false)
