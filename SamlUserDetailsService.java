@@ -7,6 +7,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.saml2.provider.service.authentication.Saml2AuthenticatedPrincipal;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -45,9 +46,9 @@ import java.util.Optional;
    User user = userOpt.get();
    System.out.println("[SAML] Connexion autorisée: " + user.getPrenom() + " " + user.getNom());
   
-   List<SimpleGrantedAuthority> authorities = List.of(
-       new SimpleGrantedAuthority("ROLE_" + user.getRole())
-   );
+   // ✅ CORRECTION : List<GrantedAuthority> (pas List<SimpleGrantedAuthority>)
+   List<GrantedAuthority> authorities = new ArrayList<>();
+   authorities.add(new SimpleGrantedAuthority("ROLE_" + user.getRole()));
   
    return new CustomUserDetails(user, authorities);
   ```
