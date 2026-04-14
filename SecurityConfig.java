@@ -51,6 +51,7 @@ import java.util.List;
        )
   
        .saml2Login(saml -> saml
+           // bnpp_websso = registrationId dans application.properties
            .loginProcessingUrl("/login/saml2/sso/{registrationId}")
            .successHandler(samlSuccessHandler())
            .failureUrl("/access-denied")
@@ -79,6 +80,7 @@ import java.util.List;
            samlUserDetailsService.loadUserFromSaml(principal);
            // ✅ Autorisé → redirection vers le frontend Vue.js
            response.sendRedirect("http://localhost:5173/dashboard");
+           // ⚠️ En prod, adaptez l'URL selon votre déploiement
        } catch (Exception e) {
            // ❌ UID non trouvé en base → accès refusé
            response.sendRedirect("/access-denied");
