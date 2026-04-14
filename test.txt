@@ -1,35 +1,40 @@
-<!-- 
-  DÉPENDANCES À AJOUTER dans pom.xml de portail-datalake
-  Copiez ces blocs dans la section <dependencies>
--->
+# =============================================================
+# application.properties - portail-datalake
+# Adapté depuis application-prod.yml de l'ancien portail
+# =============================================================
 
-<!-- SQLite JDBC Driver -->
-<dependency>
-    <groupId>org.xerial</groupId>
-    <artifactId>sqlite-jdbc</artifactId>
-    <version>3.45.1.0</version>
-</dependency>
+server.port=8080
 
-<!-- Hibernate dialect pour SQLite -->
-<dependency>
-    <groupId>org.hibernate.orm</groupId>
-    <artifactId>hibernate-community-dialects</artifactId>
-</dependency>
+# ---------------------------------------------------------------
+# SQLite - Nouveau (remplace passFile.txt)
+# ---------------------------------------------------------------
+spring.datasource.url=jdbc:sqlite:./users.db
+spring.datasource.username=
+spring.datasource.password=
+spring.datasource.driver-class-name=org.sqlite.JDBC
+spring.jpa.database-platform=org.hibernate.community.dialect.SQLiteDialect
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
 
-<!-- Spring Data JPA -->
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-data-jpa</artifactId>
-</dependency>
+# ---------------------------------------------------------------
+# SAML2 - Repris EXACTEMENT depuis votre application-prod.yml
+# Registration ID : bnpp_websso (même nom que l'ancien)
+# ---------------------------------------------------------------
 
-<!-- Spring Security SAML2 -->
-<dependency>
-    <groupId>org.springframework.security</groupId>
-    <artifactId>spring-security-saml2-service-provider</artifactId>
-</dependency>
+# Certificats de signature de VOTRE application (SP)
+spring.security.saml2.relyingparty.registration.bnpp_websso.signing.credentials[0].private-key-location=classpath:/dlprdsso.key
+spring.security.saml2.relyingparty.registration.bnpp_websso.signing.credentials[0].certificate-location=classpath:/dlprdsso.crt
 
-<!-- Spring Security Web -->
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-security</artifactId>
-</dependency>
+# IdP WebSSO BNP (Identity Provider)
+spring.security.saml2.relyingparty.registration.bnpp_websso.assertingparty.entity-id=https://websso-itg.group.echonet
+spring.security.saml2.relyingparty.registration.bnpp_websso.assertingparty.single-sign-on.url=https://websso-itg.group.echonet/affwebservices/public/saml2sso
+spring.security.saml2.relyingparty.registration.bnpp_websso.assertingparty.single-sign-on.sign-request=true
+
+# Certificat de vérification de l'IdP BNP
+spring.security.saml2.relyingparty.registration.bnpp_websso.assertingparty.verification.credentials[0].certificate-location=classpath:/bnpp_websso_prod_idp.crt
+
+# ---------------------------------------------------------------
+# Logs - identiques à l'ancien
+# ---------------------------------------------------------------
+logging.level.opensaml=INFO
+logging.level.springframework.security=INFO
