@@ -1,0 +1,32 @@
+<!-- 
+  AJOUTS AU pom.xml DE frservices
+  Ajoutez dans la section <dependencies>
+-->
+
+<!-- ✅ SQLite JDBC Driver -->
+<dependency>
+    <groupId>org.xerial</groupId>
+    <artifactId>sqlite-jdbc</artifactId>
+    <version>3.45.1.0</version>
+</dependency>
+
+<!-- ✅ Hibernate Community Dialects (support SQLite) -->
+<dependency>
+    <groupId>org.hibernate.orm</groupId>
+    <artifactId>hibernate-community-dialects</artifactId>
+</dependency>
+
+<!-- ✅ Spring Data JPA (si pas déjà présent) -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+
+<!--
+  ✅ À RETIRER du pom.xml (si présent) :
+  Les dépendances OpenSAML custom (AuthnRequestBuilder/Impl)
+  peuvent rester telles quelles, elles sont indépendantes.
+
+  ⚠️ SUPPRIMER passFile.txt de src/main/resources/
+     une fois la migration SQLite validée.
+-->

@@ -1,0 +1,72 @@
+# =============================================================
+# application-saml.yml
+# Config spécifique au profil "saml" (utilisé en intégration/prod)
+#
+# AJOUTS PAR RAPPORT À L'ORIGINAL :
+#   - Section spring.datasource → SQLite
+#   - Section spring.jpa       → Hibernate SQLite dialect
+#
+# CONSERVÉ IDENTIQUE :
+#   - Toute la config SAML existante (spring.security.saml2.*)
+#   - Les RelyingParty registrations
+#   - Les métadatas SPID/WebSSO
+# =============================================================
+
+spring:
+
+  # ---------------------------------------------------------------
+  # ✅ NOUVEAU - Base de données SQLite
+  # Remplace passFile.txt pour stocker les utilisateurs autorisés
+  # ---------------------------------------------------------------
+  datasource:
+    url: jdbc:sqlite:./users.db
+    # Pas de username/password pour SQLite (fichier local)
+    username:
+    password:
+    driver-class-name: org.sqlite.JDBC
+
+  jpa:
+    # Dialect SQLite (nécessite hibernate-community-dialects dans pom.xml)
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      # update = crée la table si elle n'existe pas, la met à jour si besoin
+      # En prod, préférez "validate" avec des migrations Flyway
+      ddl-auto: update
+    show-sql: false  # passer à true pour déboguer les requêtes SQL
+
+  # ---------------------------------------------------------------
+  # EXISTANT - Configuration SAML2 (conservée telle quelle)
+  # Adaptez selon votre application-saml.yml actuel
+  # ---------------------------------------------------------------
+  security:
+    saml2:
+      relyingparty:
+        registration:
+          # Votre registration ID existant (ex: "websso-itg", "spid", etc.)
+          # Gardez exactement ce qui était dans votre fichier original
+          websso-itg:
+            entity-id: https://votre-app.echonet/saml/metadata
+            acs:
+              location: https://votre-app.echonet/login/saml2/sso/websso-itg
+            assertingparty:
+              # Option A : URL du metadata (si accessible)
+              metadata-uri: https://websso-itg.staging.echonet/metadata/a1metadata.xml
+              # Option B : fichier local dans resources/SPID/
+              # metadata-uri: classpath:SPID/stagingmetadata-14_11_2033.xml
+
+# ---------------------------------------------------------------
+# AJOUTS AU pom.xml (rappel - à faire manuellement)
+# ---------------------------------------------------------------
+# <dependency>
+#   <groupId>org.xerial</groupId>
+#   <artifactId>sqlite-jdbc</artifactId>
+#   <version>3.45.1.0</version>
+# </dependency>
+# <dependency>
+#   <groupId>org.hibernate.orm</groupId>
+#   <artifactId>hibernate-community-dialects</artifactId>
+# </dependency>
+# <dependency>
+#   <groupId>org.springframework.boot</groupId>
+#   <artifactId>spring-boot-starter-data-jpa</artifactId>
+# </dependency>
