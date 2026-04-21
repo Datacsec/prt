@@ -5,34 +5,26 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Options Chrome
 options = webdriver.ChromeOptions()
 options.add_argument("--ignore-certificate-errors")
 options.add_argument("--no-sandbox")
-# options.add_argument("--headless")  # décommente pour sans fenêtre
+options.add_argument("--no-proxy-server")  # bypass proxy pour intranet
 
-# Lancer Chrome automatiquement
 driver = webdriver.Chrome(
     service=Service(ChromeDriverManager().install()),
     options=options
 )
 
-# Aller sur le site
-driver.get("https://ton-site-interne.echonet")
+driver.get("https://ton-site.echonet")
 
-# Attendre que le champ username apparaisse
 wait = WebDriverWait(driver, 10)
-wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-test-id="username"]')))
+wait.until(EC.presence_of_element_located(
+    (By.CSS_SELECTOR, '[data-test-id="username"]')
+))
 
-# Login
 driver.find_element(By.CSS_SELECTOR, '[data-test-id="username"]').send_keys("ton_username")
 driver.find_element(By.CSS_SELECTOR, '[data-test-id="password"]').send_keys("ton_password")
 driver.find_element(By.CSS_SELECTOR, '[data-test-id="ab-login-ok-button"]').click()
 
-# Attendre la page suivante
 wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-
 print(driver.page_source[:500])
-
-# driver.quit()  # fermer le navigateur
-
