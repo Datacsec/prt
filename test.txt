@@ -1,40 +1,275 @@
-# =============================================================
-# application.properties - portail-datalake
-# Adapté depuis application-prod.yml de l'ancien portail
-# =============================================================
+import scala.meta._
+import io.circe.generic.auto._
+import io.circe.syntax._
+import java.nio.file.{Files, Paths}
 
-server.port=8080
+// ============================================================
+// MODÈLES DE DONNÉES
+// ============================================================
 
-# ---------------------------------------------------------------
-# SQLite - Nouveau (remplace passFile.txt)
-# ---------------------------------------------------------------
-spring.datasource.url=jdbc:sqlite:./users.db
-spring.datasource.username=
-spring.datasource.password=
-spring.datasource.driver-class-name=org.sqlite.JDBC
-spring.jpa.database-platform=org.hibernate.community.dialect.SQLiteDialect
-spring.jpa.hibernate.ddl-auto=update
-spring.jpa.show-sql=true
+case class ChampCaseClass(
+  nom: String,
+  typeScala: String,
+  ligne: Int
+)
 
-# ---------------------------------------------------------------
-# SAML2 - Repris EXACTEMENT depuis votre application-prod.yml
-# Registration ID : bnpp_websso (même nom que l'ancien)
-# ---------------------------------------------------------------
+case class WithColumnInfo(
+  nomColonne: String,
+  codeExpression: String,
+  ligne: Int,
+  valParent: String  // la val dans laquelle il est défini
+)
 
-# Certificats de signature de VOTRE application (SP)
-spring.security.saml2.relyingparty.registration.bnpp_websso.signing.credentials[0].private-key-location=classpath:/dlprdsso.key
-spring.security.saml2.relyingparty.registration.bnpp_websso.signing.credentials[0].certificate-location=classpath:/dlprdsso.crt
+case class SelectAlias(
+  nomColonne: String,
+  codeExpression: String,
+  ligne: Int,
+  valParent: String
+)
 
-# IdP WebSSO BNP (Identity Provider)
-spring.security.saml2.relyingparty.registration.bnpp_websso.assertingparty.entity-id=https://websso-itg.group.echonet
-spring.security.saml2.relyingparty.registration.bnpp_websso.assertingparty.single-sign-on.url=https://websso-itg.group.echonet/affwebservices/public/saml2sso
-spring.security.saml2.relyingparty.registration.bnpp_websso.assertingparty.single-sign-on.sign-request=true
+case class JoinInfo(
+  dfGauche: String,
+  dfDroite: String,
+  condition: String,
+  typeJoin: String,
+  ligne: Int,
+  valParent: String
+)
 
-# Certificat de vérification de l'IdP BNP
-spring.security.saml2.relyingparty.registration.bnpp_websso.assertingparty.verification.credentials[0].certificate-location=classpath:/bnpp_websso_prod_idp.crt
+case class ValDefinition(
+  nom: String,
+  dataframesUtilises: List[String],
+  colonnesReferencees: List[String],
+  valsAppelees: List[String],
+  codeComplet: String,
+  ligneDebut: Int,
+  ligneFin: Int
+)
 
-# ---------------------------------------------------------------
-# Logs - identiques à l'ancien
-# ---------------------------------------------------------------
-logging.level.opensaml=INFO
-logging.level.springframework.security=INFO
+case class BuilderIndex(
+  nomMethode: String,
+  parametres: List[ParametreInfo],
+  vals: List[ValDefinition],
+  withColumns: List[WithColumnInfo],
+  selectAliases: List[SelectAlias],
+  joins: List[JoinInfo]
+)
+
+case class ParametreInfo(
+  nom: String,
+  typeScala: String
+)
+
+case class IndexComplet(
+  caseClasses: Map[String, List[ChampCaseClass]],
+  builders: Map[String, BuilderIndex]
+)
+
+// ============================================================
+// EXTRACTEUR
+// ============================================================
+
+object Extractor {
+
+  def parseFile(path: String): Source = {
+    val code = new String(Files.readAllBytes(Paths.get(path)))
+    val input = Input.VirtualFile(path, code)
+    input.parse[Source].get
+  }
+
+  // --- Case class extraction ---
+  def extraireCaseClasses(tree: Source): Map[String, List[ChampCaseClass]] = {
+    tree.collect {
+      case cls: Defn.Class if cls.mods.exists(_.is[Mod.Case]) =>
+        val champs = cls.ctor.paramss.flatten.map { p =>
+          ChampCaseClass(
+            nom       = p.name.value,
+            typeScala = p.decltpe.map(_.syntax).getOrElse("Unknown"),
+            ligne     = p.pos.startLine + 1
+          )
+        }
+        cls.name.value -> champs
+    }.toMap
+  }
+
+  // --- Extraction des .as("alias") dans un select ---
+  def extraireSelectAliases(valParent: String, tree: Tree): List[SelectAlias] = {
+    tree.collect {
+      case Term.Apply(
+        Term.Select(expr, Term.Name("as")),
+        List(Lit.String(alias))
+      ) =>
+        SelectAlias(
+          nomColonne    = alias,
+          codeExpression = expr.syntax,
+          ligne         = expr.pos.startLine + 1,
+          valParent     = valParent
+        )
+    }
+  }
+
+  // --- Extraction des withColumn("nom", expr) ---
+  def extraireWithColumns(valParent: String, tree: Tree): List[WithColumnInfo] = {
+    tree.collect {
+      case Term.Apply(
+        Term.Select(_, Term.Name("withColumn")),
+        List(Lit.String(nom), expr)
+      ) =>
+        WithColumnInfo(
+          nomColonne    = nom,
+          codeExpression = expr.syntax,
+          ligne         = expr.pos.startLine + 1,
+          valParent     = valParent
+        )
+    }
+  }
+
+  // --- Extraction des joins ---
+  def extraireJoins(valParent: String, tree: Tree): List[JoinInfo] = {
+    tree.collect {
+      case Term.Apply(
+        Term.Select(dfGauche, Term.Name("join")),
+        args
+      ) =>
+        val dfDroite = args.headOption.map(_.syntax).getOrElse("?")
+        val condition = args.lift(1).map(_.syntax).getOrElse("")
+        val typeJoin = args.lift(2) match {
+          case Some(Lit.String(t)) => t
+          case _ => "inner"
+        }
+        JoinInfo(
+          dfGauche  = dfGauche.syntax.take(80),
+          dfDroite  = dfDroite.take(80),
+          condition = condition.take(200),
+          typeJoin  = typeJoin,
+          ligne     = dfGauche.pos.startLine + 1,
+          valParent = valParent
+        )
+    }
+  }
+
+  // --- Extraction des dataframes référencés (Term.Name) ---
+  def extraireDataframesUtilises(tree: Tree, parametresMethode: Set[String]): List[String] = {
+    tree.collect {
+      case Term.Name(n) if parametresMethode.contains(n) => n
+    }.distinct
+  }
+
+  // --- Extraction des val appelées (autres val dans la méthode) ---
+  def extraireValsAppelees(tree: Tree, valsDisponibles: Set[String]): List[String] = {
+    tree.collect {
+      case Term.Name(n) if valsDisponibles.contains(n) => n
+    }.distinct
+  }
+
+  // --- Extraction des colonnes référencées ($"COL", col("COL"), df("COL")) ---
+  def extraireColonnesReferencees(tree: Tree): List[String] = {
+    val colonnes = scala.collection.mutable.ListBuffer[String]()
+    tree.traverse {
+      case Term.Interpolate(Term.Name("$"), List(Lit.String(c)), _) =>
+        colonnes += c
+      case Term.Apply(Term.Name("col" | "column"), List(Lit.String(c))) =>
+        colonnes += c
+      case Term.Apply(_, List(Lit.String(c))) if c.matches("[A-Z0-9_]+") =>
+        colonnes += c
+    }
+    colonnes.toList.distinct
+  }
+
+  // --- Traitement d'une méthode builder ---
+  def extraireBuilder(methode: Defn.Def): BuilderIndex = {
+    val parametres = methode.paramss.flatten.map { p =>
+      ParametreInfo(
+        nom       = p.name.value,
+        typeScala = p.decltpe.map(_.syntax).getOrElse("Unknown")
+      )
+    }
+    val paramNames = parametres.map(_.nom).toSet
+
+    // Toutes les val dans le corps de la méthode
+    val valsDansMethode = methode.body.collect {
+      case v: Defn.Val => v
+    }
+    val valNames = valsDansMethode.flatMap(_.pats.collect {
+      case Pat.Var(n) => n.value
+    }).toSet
+
+    val valsDefinitions = valsDansMethode.map { v =>
+      val nom = v.pats.head match {
+        case Pat.Var(n) => n.value
+        case _ => "?"
+      }
+      ValDefinition(
+        nom                 = nom,
+        dataframesUtilises  = extraireDataframesUtilises(v.rhs, paramNames),
+        colonnesReferencees = extraireColonnesReferencees(v.rhs),
+        valsAppelees        = extraireValsAppelees(v.rhs, valNames - nom),
+        codeComplet         = v.syntax,
+        ligneDebut          = v.pos.startLine + 1,
+        ligneFin            = v.pos.endLine + 1
+      )
+    }
+
+    // Agrégation withColumn / aliases / joins par val parent
+    val allWithColumns = valsDansMethode.flatMap { v =>
+      val nom = v.pats.head match {
+        case Pat.Var(n) => n.value
+        case _ => "?"
+      }
+      extraireWithColumns(nom, v.rhs)
+    }
+
+    val allAliases = valsDansMethode.flatMap { v =>
+      val nom = v.pats.head match {
+        case Pat.Var(n) => n.value
+        case _ => "?"
+      }
+      extraireSelectAliases(nom, v.rhs)
+    }
+
+    val allJoins = valsDansMethode.flatMap { v =>
+      val nom = v.pats.head match {
+        case Pat.Var(n) => n.value
+        case _ => "?"
+      }
+      extraireJoins(nom, v.rhs)
+    }
+
+    BuilderIndex(
+      nomMethode     = methode.name.value,
+      parametres     = parametres,
+      vals           = valsDefinitions,
+      withColumns    = allWithColumns,
+      selectAliases  = allAliases,
+      joins          = allJoins
+    )
+  }
+
+  // --- Point d'entrée ---
+  def main(args: Array[String]): Unit = {
+    val fichiersModel   = args(0).split(",").toList  // "path1,path2"
+    val fichiersBuilder = args(1).split(",").toList
+
+    println(s"📖 Parsing ${fichiersModel.size} fichier(s) modèle...")
+    val caseClasses = fichiersModel.flatMap { path =>
+      extraireCaseClasses(parseFile(path))
+    }.toMap
+
+    println(s"📖 Parsing ${fichiersBuilder.size} fichier(s) builder...")
+    val builders = fichiersBuilder.flatMap { path =>
+      val tree = parseFile(path)
+      tree.collect {
+        case d: Defn.Def if d.name.value.startsWith("build") =>
+          d.name.value -> extraireBuilder(d)
+      }
+    }.toMap
+
+    val index = IndexComplet(caseClasses, builders)
+    val json = index.asJson.spaces2
+
+    Files.write(Paths.get("output/index.json"), json.getBytes)
+    println(s"✅ Index écrit dans output/index.json")
+    println(s"   ${caseClasses.size} case classes, ${builders.size} builders")
+    println(s"   Total champs: ${caseClasses.values.map(_.size).sum}")
+  }
+}
