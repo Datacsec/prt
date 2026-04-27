@@ -1,130 +1,70 @@
 import json
 from pathlib import Path
-from typing import Dict, List, Set
 
-def charger_index(path: str = "output/index.json") -> dict:
+def charger_fichier_source(path: str) -> List[str]:
     with open(path) as f:
-        return json.load(f)
+        return f.readlines()
 
-def trouver_source_champ(nom_champ: str, builder: dict) -> dict:
-    """
-    Pour un champ de case class, trouve où il est produit :
-    - dans un .as("nomChamp") → select alias
-    - dans un withColumn("nomChamp", ...)
-    """
-    sources = {
-        "via_alias": [],
-        "via_withColumn": []
-    }
-    
-    for alias in builder["selectAliases"]:
-        if alias["nomColonne"] == nom_champ:
-            sources["via_alias"].append(alias)
-    
-    for wc in builder["withColumns"]:
-        if wc["nomColonne"] == nom_champ:
-            sources["via_withColumn"].append(wc)
-    
-    return sources
+def extraire_lignes(lignes: List[str], debut: int, fin: int) -> str:
+    """Lignes 1-indexées."""
+    return "".join(lignes[debut-1:fin])
 
-def resoudre_chaine_vals(val_nom: str, builder: dict, vus: Set[str] = None) -> List[str]:
+def reconstituer_contexte(champ_dep: dict, builder: dict, fichier_source: str) -> str:
     """
-    Récursivement, trouve toutes les val dont dépend `val_nom`.
+    Reconstitue un bloc Scala contenant :
+    - Les val nécessaires dans l'ordre
+    - Les withColumn/alias qui concernent le champ
     """
-    if vus is None:
-        vus = set()
-    if val_nom in vus:
-        return []
-    vus.add(val_nom)
+    lignes = charger_fichier_source(fichier_source)
     
-    val_def = next((v for v in builder["vals"] if v["nom"] == val_nom), None)
-    if not val_def:
-        return []
+    parties = []
+    parties.append(f"// ===== CHAMP : {champ_dep['champ']} (type: {champ_dep['type']}) =====\n")
+    parties.append(f"// Dataframes sources : {', '.join(champ_dep['dataframes_sources'])}\n\n")
     
-    chaine = [val_nom]
-    for appel in val_def["valsAppelees"]:
-        chaine.extend(resoudre_chaine_vals(appel, builder, vus))
+    # Les val impliquées dans l'ordre d'apparition dans le code
+    vals_triees = sorted(
+        [v for v in builder["vals"] if v["nom"] in champ_dep["vals_impliquees"]],
+        key=lambda x: x["ligneDebut"]
+    )
     
-    return chaine
+    for val_def in vals_triees:
+        parties.append(f"// --- val {val_def['nom']} (ligne {val_def['ligneDebut']}) ---\n")
+        parties.append(extraire_lignes(lignes, val_def["ligneDebut"], val_def["ligneFin"]))
+        parties.append("\n\n")
+    
+    # Les sources directes du champ
+    parties.append(f"// --- Construction directe du champ '{champ_dep['champ']}' ---\n")
+    for s in champ_dep["sources_directes"]["via_alias"]:
+        parties.append(f"// alias ligne {s['ligne']}\n")
+        parties.append(s["codeExpression"] + f".as(\"{champ_dep['champ']}\")\n\n")
+    
+    for s in champ_dep["sources_directes"]["via_withColumn"]:
+        parties.append(f"// withColumn ligne {s['ligne']}\n")
+        parties.append(f".withColumn(\"{champ_dep['champ']}\", {s['codeExpression']})\n\n")
+    
+    return "".join(parties)
 
-def construire_dependances_champ(
-    nom_champ: str, 
-    builder: dict, 
-    type_champ: str
-) -> dict:
-    sources = trouver_source_champ(nom_champ, builder)
+def main(fichier_builder: str):
+    with open("output/dependencies.json") as f:
+        deps = json.load(f)
+    with open("output/index.json") as f:
+        index = json.load(f)
     
-    vals_impliquees = set()
-    for s in sources["via_alias"] + sources["via_withColumn"]:
-        val_parent = s["valParent"]
-        vals_impliquees.update(resoudre_chaine_vals(val_parent, builder))
+    builder = index["builders"][deps["builder"]]
     
-    # Collecter tous les dataframes utilisés dans ces val
-    dataframes = set()
-    colonnes_sources = set()
+    Path("output/contexts").mkdir(parents=True, exist_ok=True)
     
-    for val_def in builder["vals"]:
-        if val_def["nom"] in vals_impliquees:
-            dataframes.update(val_def["dataframesUtilises"])
-            colonnes_sources.update(val_def["colonnesReferencees"])
+    for champ_dep in deps["champs"]:
+        if champ_dep["nb_val_dans_chaine"] == 0:
+            continue
+        
+        contexte = reconstituer_contexte(champ_dep, builder, fichier_builder)
+        
+        with open(f"output/contexts/{champ_dep['champ']}.scala", "w") as f:
+            f.write(contexte)
     
-    return {
-        "champ": nom_champ,
-        "type": type_champ,
-        "sources_directes": sources,
-        "vals_impliquees": list(vals_impliquees),
-        "dataframes_sources": list(dataframes),
-        "colonnes_sources": list(colonnes_sources),
-        "nb_val_dans_chaine": len(vals_impliquees)
-    }
-
-def main():
-    index = charger_index()
-    
-    # On prend la première case class (adapter selon ton cas)
-    nom_case_class = list(index["caseClasses"].keys())[0]
-    champs = index["caseClasses"][nom_case_class]
-    
-    # Trouver le builder correspondant (convention : build + NomCaseClass)
-    nom_builder = f"build{nom_case_class}"
-    builder = index["builders"].get(nom_builder)
-    
-    if not builder:
-        # Essayer de trouver un builder qui ressemble
-        candidates = [k for k in index["builders"].keys() if nom_case_class.lower() in k.lower()]
-        if candidates:
-            nom_builder = candidates[0]
-            builder = index["builders"][nom_builder]
-        else:
-            print(f"❌ Aucun builder trouvé pour {nom_case_class}")
-            return
-    
-    print(f"🔍 Analyse de {nom_case_class} → {nom_builder}")
-    print(f"   {len(champs)} champs à analyser")
-    
-    dependances = []
-    orphelins = []
-    
-    for champ in champs:
-        dep = construire_dependances_champ(
-            champ["nom"], builder, champ["typeScala"]
-        )
-        if not dep["sources_directes"]["via_alias"] and not dep["sources_directes"]["via_withColumn"]:
-            orphelins.append(champ["nom"])
-        dependances.append(dep)
-    
-    Path("output").mkdir(exist_ok=True)
-    with open("output/dependencies.json", "w") as f:
-        json.dump({
-            "case_class": nom_case_class,
-            "builder": nom_builder,
-            "champs": dependances,
-            "orphelins": orphelins
-        }, f, indent=2)
-    
-    print(f"✅ Dépendances écrites dans output/dependencies.json")
-    print(f"   {len(dependances) - len(orphelins)} champs résolus")
-    print(f"   ⚠️  {len(orphelins)} champs orphelins (non trouvés) : {orphelins[:5]}...")
+    print(f"✅ Contextes écrits dans output/contexts/")
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(sys.argv[1])  # chemin du builder
