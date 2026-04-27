@@ -1,275 +1,130 @@
-import scala.meta._
-import io.circe.generic.auto._
-import io.circe.syntax._
-import java.nio.file.{Files, Paths}
+import json
+from pathlib import Path
+from typing import Dict, List, Set
 
-// ============================================================
-// MODÈLES DE DONNÉES
-// ============================================================
+def charger_index(path: str = "output/index.json") -> dict:
+    with open(path) as f:
+        return json.load(f)
 
-case class ChampCaseClass(
-  nom: String,
-  typeScala: String,
-  ligne: Int
-)
+def trouver_source_champ(nom_champ: str, builder: dict) -> dict:
+    """
+    Pour un champ de case class, trouve où il est produit :
+    - dans un .as("nomChamp") → select alias
+    - dans un withColumn("nomChamp", ...)
+    """
+    sources = {
+        "via_alias": [],
+        "via_withColumn": []
+    }
+    
+    for alias in builder["selectAliases"]:
+        if alias["nomColonne"] == nom_champ:
+            sources["via_alias"].append(alias)
+    
+    for wc in builder["withColumns"]:
+        if wc["nomColonne"] == nom_champ:
+            sources["via_withColumn"].append(wc)
+    
+    return sources
 
-case class WithColumnInfo(
-  nomColonne: String,
-  codeExpression: String,
-  ligne: Int,
-  valParent: String  // la val dans laquelle il est défini
-)
+def resoudre_chaine_vals(val_nom: str, builder: dict, vus: Set[str] = None) -> List[str]:
+    """
+    Récursivement, trouve toutes les val dont dépend `val_nom`.
+    """
+    if vus is None:
+        vus = set()
+    if val_nom in vus:
+        return []
+    vus.add(val_nom)
+    
+    val_def = next((v for v in builder["vals"] if v["nom"] == val_nom), None)
+    if not val_def:
+        return []
+    
+    chaine = [val_nom]
+    for appel in val_def["valsAppelees"]:
+        chaine.extend(resoudre_chaine_vals(appel, builder, vus))
+    
+    return chaine
 
-case class SelectAlias(
-  nomColonne: String,
-  codeExpression: String,
-  ligne: Int,
-  valParent: String
-)
+def construire_dependances_champ(
+    nom_champ: str, 
+    builder: dict, 
+    type_champ: str
+) -> dict:
+    sources = trouver_source_champ(nom_champ, builder)
+    
+    vals_impliquees = set()
+    for s in sources["via_alias"] + sources["via_withColumn"]:
+        val_parent = s["valParent"]
+        vals_impliquees.update(resoudre_chaine_vals(val_parent, builder))
+    
+    # Collecter tous les dataframes utilisés dans ces val
+    dataframes = set()
+    colonnes_sources = set()
+    
+    for val_def in builder["vals"]:
+        if val_def["nom"] in vals_impliquees:
+            dataframes.update(val_def["dataframesUtilises"])
+            colonnes_sources.update(val_def["colonnesReferencees"])
+    
+    return {
+        "champ": nom_champ,
+        "type": type_champ,
+        "sources_directes": sources,
+        "vals_impliquees": list(vals_impliquees),
+        "dataframes_sources": list(dataframes),
+        "colonnes_sources": list(colonnes_sources),
+        "nb_val_dans_chaine": len(vals_impliquees)
+    }
 
-case class JoinInfo(
-  dfGauche: String,
-  dfDroite: String,
-  condition: String,
-  typeJoin: String,
-  ligne: Int,
-  valParent: String
-)
-
-case class ValDefinition(
-  nom: String,
-  dataframesUtilises: List[String],
-  colonnesReferencees: List[String],
-  valsAppelees: List[String],
-  codeComplet: String,
-  ligneDebut: Int,
-  ligneFin: Int
-)
-
-case class BuilderIndex(
-  nomMethode: String,
-  parametres: List[ParametreInfo],
-  vals: List[ValDefinition],
-  withColumns: List[WithColumnInfo],
-  selectAliases: List[SelectAlias],
-  joins: List[JoinInfo]
-)
-
-case class ParametreInfo(
-  nom: String,
-  typeScala: String
-)
-
-case class IndexComplet(
-  caseClasses: Map[String, List[ChampCaseClass]],
-  builders: Map[String, BuilderIndex]
-)
-
-// ============================================================
-// EXTRACTEUR
-// ============================================================
-
-object Extractor {
-
-  def parseFile(path: String): Source = {
-    val code = new String(Files.readAllBytes(Paths.get(path)))
-    val input = Input.VirtualFile(path, code)
-    input.parse[Source].get
-  }
-
-  // --- Case class extraction ---
-  def extraireCaseClasses(tree: Source): Map[String, List[ChampCaseClass]] = {
-    tree.collect {
-      case cls: Defn.Class if cls.mods.exists(_.is[Mod.Case]) =>
-        val champs = cls.ctor.paramss.flatten.map { p =>
-          ChampCaseClass(
-            nom       = p.name.value,
-            typeScala = p.decltpe.map(_.syntax).getOrElse("Unknown"),
-            ligne     = p.pos.startLine + 1
-          )
-        }
-        cls.name.value -> champs
-    }.toMap
-  }
-
-  // --- Extraction des .as("alias") dans un select ---
-  def extraireSelectAliases(valParent: String, tree: Tree): List[SelectAlias] = {
-    tree.collect {
-      case Term.Apply(
-        Term.Select(expr, Term.Name("as")),
-        List(Lit.String(alias))
-      ) =>
-        SelectAlias(
-          nomColonne    = alias,
-          codeExpression = expr.syntax,
-          ligne         = expr.pos.startLine + 1,
-          valParent     = valParent
+def main():
+    index = charger_index()
+    
+    # On prend la première case class (adapter selon ton cas)
+    nom_case_class = list(index["caseClasses"].keys())[0]
+    champs = index["caseClasses"][nom_case_class]
+    
+    # Trouver le builder correspondant (convention : build + NomCaseClass)
+    nom_builder = f"build{nom_case_class}"
+    builder = index["builders"].get(nom_builder)
+    
+    if not builder:
+        # Essayer de trouver un builder qui ressemble
+        candidates = [k for k in index["builders"].keys() if nom_case_class.lower() in k.lower()]
+        if candidates:
+            nom_builder = candidates[0]
+            builder = index["builders"][nom_builder]
+        else:
+            print(f"❌ Aucun builder trouvé pour {nom_case_class}")
+            return
+    
+    print(f"🔍 Analyse de {nom_case_class} → {nom_builder}")
+    print(f"   {len(champs)} champs à analyser")
+    
+    dependances = []
+    orphelins = []
+    
+    for champ in champs:
+        dep = construire_dependances_champ(
+            champ["nom"], builder, champ["typeScala"]
         )
-    }
-  }
+        if not dep["sources_directes"]["via_alias"] and not dep["sources_directes"]["via_withColumn"]:
+            orphelins.append(champ["nom"])
+        dependances.append(dep)
+    
+    Path("output").mkdir(exist_ok=True)
+    with open("output/dependencies.json", "w") as f:
+        json.dump({
+            "case_class": nom_case_class,
+            "builder": nom_builder,
+            "champs": dependances,
+            "orphelins": orphelins
+        }, f, indent=2)
+    
+    print(f"✅ Dépendances écrites dans output/dependencies.json")
+    print(f"   {len(dependances) - len(orphelins)} champs résolus")
+    print(f"   ⚠️  {len(orphelins)} champs orphelins (non trouvés) : {orphelins[:5]}...")
 
-  // --- Extraction des withColumn("nom", expr) ---
-  def extraireWithColumns(valParent: String, tree: Tree): List[WithColumnInfo] = {
-    tree.collect {
-      case Term.Apply(
-        Term.Select(_, Term.Name("withColumn")),
-        List(Lit.String(nom), expr)
-      ) =>
-        WithColumnInfo(
-          nomColonne    = nom,
-          codeExpression = expr.syntax,
-          ligne         = expr.pos.startLine + 1,
-          valParent     = valParent
-        )
-    }
-  }
-
-  // --- Extraction des joins ---
-  def extraireJoins(valParent: String, tree: Tree): List[JoinInfo] = {
-    tree.collect {
-      case Term.Apply(
-        Term.Select(dfGauche, Term.Name("join")),
-        args
-      ) =>
-        val dfDroite = args.headOption.map(_.syntax).getOrElse("?")
-        val condition = args.lift(1).map(_.syntax).getOrElse("")
-        val typeJoin = args.lift(2) match {
-          case Some(Lit.String(t)) => t
-          case _ => "inner"
-        }
-        JoinInfo(
-          dfGauche  = dfGauche.syntax.take(80),
-          dfDroite  = dfDroite.take(80),
-          condition = condition.take(200),
-          typeJoin  = typeJoin,
-          ligne     = dfGauche.pos.startLine + 1,
-          valParent = valParent
-        )
-    }
-  }
-
-  // --- Extraction des dataframes référencés (Term.Name) ---
-  def extraireDataframesUtilises(tree: Tree, parametresMethode: Set[String]): List[String] = {
-    tree.collect {
-      case Term.Name(n) if parametresMethode.contains(n) => n
-    }.distinct
-  }
-
-  // --- Extraction des val appelées (autres val dans la méthode) ---
-  def extraireValsAppelees(tree: Tree, valsDisponibles: Set[String]): List[String] = {
-    tree.collect {
-      case Term.Name(n) if valsDisponibles.contains(n) => n
-    }.distinct
-  }
-
-  // --- Extraction des colonnes référencées ($"COL", col("COL"), df("COL")) ---
-  def extraireColonnesReferencees(tree: Tree): List[String] = {
-    val colonnes = scala.collection.mutable.ListBuffer[String]()
-    tree.traverse {
-      case Term.Interpolate(Term.Name("$"), List(Lit.String(c)), _) =>
-        colonnes += c
-      case Term.Apply(Term.Name("col" | "column"), List(Lit.String(c))) =>
-        colonnes += c
-      case Term.Apply(_, List(Lit.String(c))) if c.matches("[A-Z0-9_]+") =>
-        colonnes += c
-    }
-    colonnes.toList.distinct
-  }
-
-  // --- Traitement d'une méthode builder ---
-  def extraireBuilder(methode: Defn.Def): BuilderIndex = {
-    val parametres = methode.paramss.flatten.map { p =>
-      ParametreInfo(
-        nom       = p.name.value,
-        typeScala = p.decltpe.map(_.syntax).getOrElse("Unknown")
-      )
-    }
-    val paramNames = parametres.map(_.nom).toSet
-
-    // Toutes les val dans le corps de la méthode
-    val valsDansMethode = methode.body.collect {
-      case v: Defn.Val => v
-    }
-    val valNames = valsDansMethode.flatMap(_.pats.collect {
-      case Pat.Var(n) => n.value
-    }).toSet
-
-    val valsDefinitions = valsDansMethode.map { v =>
-      val nom = v.pats.head match {
-        case Pat.Var(n) => n.value
-        case _ => "?"
-      }
-      ValDefinition(
-        nom                 = nom,
-        dataframesUtilises  = extraireDataframesUtilises(v.rhs, paramNames),
-        colonnesReferencees = extraireColonnesReferencees(v.rhs),
-        valsAppelees        = extraireValsAppelees(v.rhs, valNames - nom),
-        codeComplet         = v.syntax,
-        ligneDebut          = v.pos.startLine + 1,
-        ligneFin            = v.pos.endLine + 1
-      )
-    }
-
-    // Agrégation withColumn / aliases / joins par val parent
-    val allWithColumns = valsDansMethode.flatMap { v =>
-      val nom = v.pats.head match {
-        case Pat.Var(n) => n.value
-        case _ => "?"
-      }
-      extraireWithColumns(nom, v.rhs)
-    }
-
-    val allAliases = valsDansMethode.flatMap { v =>
-      val nom = v.pats.head match {
-        case Pat.Var(n) => n.value
-        case _ => "?"
-      }
-      extraireSelectAliases(nom, v.rhs)
-    }
-
-    val allJoins = valsDansMethode.flatMap { v =>
-      val nom = v.pats.head match {
-        case Pat.Var(n) => n.value
-        case _ => "?"
-      }
-      extraireJoins(nom, v.rhs)
-    }
-
-    BuilderIndex(
-      nomMethode     = methode.name.value,
-      parametres     = parametres,
-      vals           = valsDefinitions,
-      withColumns    = allWithColumns,
-      selectAliases  = allAliases,
-      joins          = allJoins
-    )
-  }
-
-  // --- Point d'entrée ---
-  def main(args: Array[String]): Unit = {
-    val fichiersModel   = args(0).split(",").toList  // "path1,path2"
-    val fichiersBuilder = args(1).split(",").toList
-
-    println(s"📖 Parsing ${fichiersModel.size} fichier(s) modèle...")
-    val caseClasses = fichiersModel.flatMap { path =>
-      extraireCaseClasses(parseFile(path))
-    }.toMap
-
-    println(s"📖 Parsing ${fichiersBuilder.size} fichier(s) builder...")
-    val builders = fichiersBuilder.flatMap { path =>
-      val tree = parseFile(path)
-      tree.collect {
-        case d: Defn.Def if d.name.value.startsWith("build") =>
-          d.name.value -> extraireBuilder(d)
-      }
-    }.toMap
-
-    val index = IndexComplet(caseClasses, builders)
-    val json = index.asJson.spaces2
-
-    Files.write(Paths.get("output/index.json"), json.getBytes)
-    println(s"✅ Index écrit dans output/index.json")
-    println(s"   ${caseClasses.size} case classes, ${builders.size} builders")
-    println(s"   Total champs: ${caseClasses.values.map(_.size).sum}")
-  }
-}
+if __name__ == "__main__":
+    main()
