@@ -1,70 +1,100 @@
-import json
+import os, json, time
 from pathlib import Path
+from anthropic import Anthropic
 
-def charger_fichier_source(path: str) -> List[str]:
-    with open(path) as f:
-        return f.readlines()
+client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-def extraire_lignes(lignes: List[str], debut: int, fin: int) -> str:
-    """Lignes 1-indexées."""
-    return "".join(lignes[debut-1:fin])
+PROMPT_TEMPLATE = """Tu es expert Spark Scala et data engineering dans le secteur bancaire.
 
-def reconstituer_contexte(champ_dep: dict, builder: dict, fichier_source: str) -> str:
-    """
-    Reconstitue un bloc Scala contenant :
-    - Les val nécessaires dans l'ordre
-    - Les withColumn/alias qui concernent le champ
-    """
-    lignes = charger_fichier_source(fichier_source)
-    
-    parties = []
-    parties.append(f"// ===== CHAMP : {champ_dep['champ']} (type: {champ_dep['type']}) =====\n")
-    parties.append(f"// Dataframes sources : {', '.join(champ_dep['dataframes_sources'])}\n\n")
-    
-    # Les val impliquées dans l'ordre d'apparition dans le code
-    vals_triees = sorted(
-        [v for v in builder["vals"] if v["nom"] in champ_dep["vals_impliquees"]],
-        key=lambda x: x["ligneDebut"]
-    )
-    
-    for val_def in vals_triees:
-        parties.append(f"// --- val {val_def['nom']} (ligne {val_def['ligneDebut']}) ---\n")
-        parties.append(extraire_lignes(lignes, val_def["ligneDebut"], val_def["ligneFin"]))
-        parties.append("\n\n")
-    
-    # Les sources directes du champ
-    parties.append(f"// --- Construction directe du champ '{champ_dep['champ']}' ---\n")
-    for s in champ_dep["sources_directes"]["via_alias"]:
-        parties.append(f"// alias ligne {s['ligne']}\n")
-        parties.append(s["codeExpression"] + f".as(\"{champ_dep['champ']}\")\n\n")
-    
-    for s in champ_dep["sources_directes"]["via_withColumn"]:
-        parties.append(f"// withColumn ligne {s['ligne']}\n")
-        parties.append(f".withColumn(\"{champ_dep['champ']}\", {s['codeExpression']})\n\n")
-    
-    return "".join(parties)
+Voici le code Scala qui construit un champ d'une table conformée. Ton rôle : produire une documentation métier + technique.
 
-def main(fichier_builder: str):
-    with open("output/dependencies.json") as f:
-        deps = json.load(f)
-    with open("output/index.json") as f:
-        index = json.load(f)
+CHAMP À DOCUMENTER : {champ}
+TYPE : {type_champ}
+DATAFRAMES SOURCES : {dataframes}
+
+CODE PERTINENT (déjà reconstitué, ne cherche pas ailleurs) :
+```scala
+{code}
+Réponds STRICTEMENT en JSON avec cette structure :
+{{
+“description_metier”: “En 1-2 phrases, que représente ce champ ?”,
+“sources_donnees”: [
+{{“dataframe”: “nom_df”, “colonnes”: [“COL1”, “COL2”], “role”: “rôle dans le calcul”}}
+],
+“regle_de_gestion”: “Explication en langage naturel, étape par étape”,
+“conditions”: [
+{{“si”: “condition”, “alors”: “valeur”}},
+…
+],
+“cas_particuliers”: [“cas 1”, “cas 2”],
+“dependances_externes”: [“MethodeX.y”, “AutreBuilder.z”],
+“niveau_confiance”: “HIGH|MEDIUM|LOW”,
+“points_ambigus”: [“ce que je ne suis pas sûr de comprendre”]
+}}
+IMPORTANT :
+	•	Si tu n’es pas sûr d’une règle, mets niveau_confiance=MEDIUM ou LOW
+	•	Ne devine pas. Liste les ambiguïtés dans “points_ambigus”
+	•	Reste factuel, base-toi uniquement sur le code fourni
+“””
+def documenter_champ(champ_dep: dict, code_contexte: str) -> dict:
+prompt = PROMPT_TEMPLATE.format(
+champ       = champ_dep[“champ”],
+type_champ  = champ_dep[“type”],
+dataframes  = “, “.join(champ_dep[“dataframes_sources”]),
+code        = code_contexte[:20000]  # safety limit
+)
+
+response = client.messages.create(
+    model      = "claude-sonnet-4-5",
+    max_tokens = 2000,
+    messages   = [{"role": "user", "content": prompt}]
+)
+
+text = response.content[0].text
+# Nettoyage ```json ... ```
+text = text.replace("```json", "").replace("```", "").strip()
+
+try:
+    return json.loads(text)
+except json.JSONDecodeError:
+    return {"erreur": "parse_failed", "raw": text}
+
+
+def main():
+with open(“output/dependencies.json”) as f:
+deps = json.load(f)
+Path("output/docs").mkdir(parents=True, exist_ok=True)
+
+# Resume : ne pas refaire les champs déjà traités
+deja_fait = {p.stem for p in Path("output/docs").glob("*.json")}
+
+for champ_dep in deps["champs"]:
+    nom = champ_dep["champ"]
+    if nom in deja_fait:
+        continue
+    if champ_dep["nb_val_dans_chaine"] == 0:
+        continue
     
-    builder = index["builders"][deps["builder"]]
+    contexte_path = Path(f"output/contexts/{nom}.scala")
+    if not contexte_path.exists():
+        continue
     
-    Path("output/contexts").mkdir(parents=True, exist_ok=True)
+    print(f"📝 Documenting {nom}...")
     
-    for champ_dep in deps["champs"]:
-        if champ_dep["nb_val_dans_chaine"] == 0:
-            continue
+    try:
+        code = contexte_path.read_text()
+        doc = documenter_champ(champ_dep, code)
+        doc["champ"] = nom
+        doc["type_scala"] = champ_dep["type"]
+        doc["status"] = "generated"  # pas encore validé
         
-        contexte = reconstituer_contexte(champ_dep, builder, fichier_builder)
+        with open(f"output/docs/{nom}.json", "w") as f:
+            json.dump(doc, f, indent=2, ensure_ascii=False)
         
-        with open(f"output/contexts/{champ_dep['champ']}.scala", "w") as f:
-            f.write(contexte)
-    
-    print(f"✅ Contextes écrits dans output/contexts/")
+        time.sleep(1)  # rate limiting
+    except Exception as e:
+        print(f"   ❌ Erreur sur {nom} : {e}")
 
-if __name__ == "__main__":
-    import sys
-    main(sys.argv[1])  # chemin du builder
+print(f"✅ Documentation générée dans output/docs/")
+if name == “main”:
+main()
