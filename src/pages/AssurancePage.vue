@@ -200,3 +200,58 @@ export default {
   }
 }
 </script>
+
+<script setup>
+import { ref, watch, nextTick } from 'vue'
+
+let idSeq = 0
+
+const SIMULATED_REPLIES = [
+  "Merci pour votre message. En production, cette réponse viendrait d'un modèle d'IA connecté à votre backend.",
+  "Je note votre demande. Voici une réponse de démonstration : comment puis-je vous aider davantage sur le portail ?",
+  "C'est une excellente question. Côté interface, tout est prêt : il reste à brancher l'endpoint de votre fournisseur d'IA.",
+  "Voici un résumé fictif : votre message a été reçu et traité localement dans le navigateur, sans envoi de données.",
+  "Pour aller plus loin, vous pourrez remplacer la fonction `simulateReply` par un appel `fetch` vers votre API."
+]
+
+const messages = ref([])
+const draft = ref('')
+const isTyping = ref(false)
+const scrollRoot = ref(null)
+
+const formatTime = (d) =>
+  new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' }).format(d)
+
+const scrollToBottom = async () => {
+  await nextTick()
+  const el = scrollRoot.value
+  if (el) el.scrollTop = el.scrollHeight
+}
+
+watch(messages, () => scrollToBottom(), { deep: true })
+watch(isTyping, () => scrollToBottom())
+
+const simulateReply = (userText) => {
+  const lower = userText.toLowerCase()
+  if (lower.includes('bonjour') || lower.includes('salut'))
+    return "Bonjour ! Je suis l'assistant du portail (mode démo). Que souhaitez-vous faire aujourd'hui ?"
+  if (lower.includes('aide') || lower.includes('help'))
+    return "Vous pouvez poser des questions sur le portail, la navigation ou vos services. Connectez une API pour des réponses réelles."
+  return SIMULATED_REPLIES[Math.floor(Math.random() * SIMULATED_REPLIES.length)]
+}
+
+const sendMessage = () => {
+  const text = draft.value.trim()
+  if (!text || isTyping.value) return
+
+  messages.value.push({ id: ++idSeq, role: 'user', content: text, at: new Date() })
+  draft.value = ''
+  isTyping.value = true
+
+  window.setTimeout(() => {
+    messages.value.push({ id: ++idSeq, role: 'assistant', content: simulateReply(text), at: new Date() })
+    isTyping.value = false
+  }, 600 + Math.random() * 500)
+}
+</script>
+
