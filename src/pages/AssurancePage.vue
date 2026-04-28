@@ -255,3 +255,49 @@ const sendMessage = () => {
 }
 </script>
 
+
+
+const sendMessage = async () => {
+  const text = draft.value.trim()
+  if (!text || isTyping.value) return
+
+  messages.value.push({ id: ++idSeq, role: 'user', content: text, at: new Date() })
+  draft.value = ''
+  isTyping.value = true
+
+  try {
+    const response = await fetch(
+      'https://llmaas-ap88967-prod.data.cloud.net.intra/engines/gpt-oss-120b/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-litellm-api-key': 'sk-yW9DGMr_cwC0NnOfNpKwOg'
+        },
+        body: JSON.stringify({
+          messages: messages.value.map(m => ({
+            role: m.role,
+            content: m.content
+          }))
+        })
+      }
+    )
+
+    const data = await response.json()
+    const reply = data.choices[0].message.content
+
+    messages.value.push({ id: ++idSeq, role: 'assistant', content: reply, at: new Date() })
+
+  } catch (err) {
+    messages.value.push({
+      id: ++idSeq,
+      role: 'assistant',
+      content: '⚠️ Erreur lors de la connexion à l\'API.',
+      at: new Date()
+    })
+  } finally {
+    isTyping.value = false
+  }
+}
+
+
