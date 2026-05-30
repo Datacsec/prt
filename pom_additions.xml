@@ -39,3 +39,578 @@
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-data-jpa</artifactId>
 </dependency>
+
+
+
+
+
+
+///////////2. application.properties
+
+
+# SQLite
+spring.datasource.url=jdbc:sqlite:./data/portail.db
+spring.datasource.driver-class-name=org.sqlite.JDBC
+spring.jpa.database-platform=org.hibernate.community.dialect.SQLiteDialect
+spring.jpa.hibernate.ddl-auto=update
+
+# JWT
+jwt.secret=VotreSecretTresLongEtSecurise1234567890ABCDEF
+jwt.expiration=86400000
+
+
+
+///////////3.models/User.java
+
+
+package com.bnpp.irb.datalake.portail.models;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "users")
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(unique = true, nullable = false)
+    private String uid;
+
+    @Column(nullable = false)
+    private String nom;
+
+    @Column(nullable = false)
+    private String prenom;
+
+    @Column(nullable = false)
+    private String password;
+
+    @Column(nullable = false)
+    private String role; // ADMIN, USER, etc.
+
+    @Column(nullable = false)
+    private String status; // ACTIF, INACTIF
+
+    // Getters & Setters
+    public Long getId() { return id; }
+    public String getUid() { return uid; }
+    public void setUid(String uid) { this.uid = uid; }
+    public String getNom() { return nom; }
+    public void setNom(String nom) { this.nom = nom; }
+    public String getPrenom() { return prenom; }
+    public void setPrenom(String prenom) { this.prenom = prenom; }
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+}
+
+
+//////////4. models/UserRepository.java
+
+package com.bnpp.irb.datalake.portail.models;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.Optional;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByUid(String uid);
+}
+
+////////5. service/JwtService.java
+
+
+package com.bnpp.irb.datalake.portail.service;
+
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.security.Key;
+import java.util.Date;
+
+@Service
+public class JwtService {
+
+    @Value("${jwt.secret}")
+    private String secret;
+
+    @Value("${jwt.expiration}")
+    private long expiration;
+
+    private Key getKey() {
+        return Keys.hmacShaKeyFor(secret.getBytes());
+    }
+
+    public String generateToken(String uid, String role) {
+        return Jwts.builder()
+            .setSubject(uid)
+            .claim("role", role)
+            .setIssuedAt(new Date())
+            .setExpiration(new Date(System.currentTimeMillis() + expiration))
+            .signWith(getKey(), SignatureAlgorithm.HS256)
+            .compact();
+    }
+
+    public String extractUid(String token) {
+        return Jwts.parserBuilder()
+            .setSigningKey(getKey()).build()
+            .parseClaimsJws(token)
+            .getBody().getSubject();
+    }
+
+    public boolean isValid(String token) {
+        try {
+            Jwts.parserBuilder().setSigningKey(getKey()).build()
+                .parseClaimsJws(token);
+            return true;
+        } catch (JwtException e) {
+            return false;
+        }
+    }
+}
+
+///////6. service/UserDetailsServiceImpl.java
+
+
+package com.bnpp.irb.datalake.portail.service;
+
+import com.bnpp.irb.datalake.portail.models.User;
+import com.bnpp.irb.datalake.portail.models.UserRepository;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.*;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class UserDetailsServiceImpl implements UserDetailsService {
+
+    private final UserRepository userRepository;
+
+    public UserDetailsServiceImpl(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    @Override
+    public UserDetails loadUserByUsername(String uid) throws UsernameNotFoundException {
+        User user = userRepository.findByUid(uid)
+            .orElseThrow(() -> new UsernameNotFoundException("User not found: " + uid));
+
+        if (!"ACTIF".equals(user.getStatus())) {
+            throw new UsernameNotFoundException("Compte inactif");
+        }
+
+        return new org.springframework.security.core.userdetails.User(
+            user.getUid(),
+            user.getPassword(),
+            List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole()))
+        );
+    }
+}
+
+//////////7. config/JwtFilter.java
+
+
+package com.bnpp.irb.datalake.portail.config;
+
+import com.bnpp.irb.datalake.portail.service.JwtService;
+import com.bnpp.irb.datalake.portail.service.UserDetailsServiceImpl;
+import jakarta.servlet.*;
+import jakarta.servlet.http.*;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+@Component
+public class JwtFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+    private final UserDetailsServiceImpl userDetailsService;
+
+    public JwtFilter(JwtService jwtService, UserDetailsServiceImpl userDetailsService) {
+        this.jwtService = jwtService;
+        this.userDetailsService = userDetailsService;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain filterChain)
+            throws ServletException, IOException {
+
+        String authHeader = request.getHeader("Authorization");
+
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7);
+            if (jwtService.isValid(token)) {
+                String uid = jwtService.extractUid(token);
+                UserDetails userDetails = userDetailsService.loadUserByUsername(uid);
+                UsernamePasswordAuthenticationToken auth =
+                    new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities());
+                SecurityContextHolder.getContext().setAuthentication(auth);
+            }
+        }
+        filterChain.doFilter(request, response);
+    }
+}
+
+
+//////////8. config/SecurityConfig.java
+
+
+package com.bnpp.irb.datalake.portail.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
+
+@Configuration
+public class SecurityConfig {
+
+    private final JwtFilter jwtFilter;
+
+    public SecurityConfig(JwtFilter jwtFilter) {
+        this.jwtFilter = jwtFilter;
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .csrf(csrf -> csrf.disable())
+            .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/auth/**").permitAll()
+                .anyRequest().authenticated()
+            )
+            .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public AuthenticationManager authManager(AuthenticationConfiguration config)
+            throws Exception {
+        return config.getAuthenticationManager();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(List.of("http://localhost:5173")); // URL Vue.js
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setAllowCredentials(true);
+        return new UrlBasedCorsConfigurationSource() {{
+            registerCorsConfiguration("/**", config);
+        }};
+    }
+}
+
+////////////9. controller/AuthController.java
+
+
+
+package com.bnpp.irb.datalake.portail.controller;
+
+import com.bnpp.irb.datalake.portail.models.User;
+import com.bnpp.irb.datalake.portail.models.UserRepository;
+import com.bnpp.irb.datalake.portail.service.JwtService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.*;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    private final AuthenticationManager authManager;
+    private final JwtService jwtService;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+
+    public AuthController(AuthenticationManager authManager,
+                          JwtService jwtService,
+                          UserRepository userRepository,
+                          PasswordEncoder passwordEncoder) {
+        this.authManager = authManager;
+        this.jwtService = jwtService;
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody Map<String, String> body) {
+        try {
+            authManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                    body.get("uid"), body.get("password")));
+
+            User user = userRepository.findByUid(body.get("uid")).orElseThrow();
+            String token = jwtService.generateToken(user.getUid(), user.getRole());
+
+            return ResponseEntity.ok(Map.of(
+                "token", token,
+                "uid", user.getUid(),
+                "nom", user.getNom(),
+                "prenom", user.getPrenom(),
+                "role", user.getRole(),
+                "status", user.getStatus()
+            ));
+        } catch (AuthenticationException e) {
+            return ResponseEntity.status(401).body(Map.of("error", "Identifiants invalides"));
+        }
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<?> me(@RequestHeader("Authorization") String authHeader) {
+        String uid = jwtService.extractUid(authHeader.substring(7));
+        User user = userRepository.findByUid(uid).orElseThrow();
+        return ResponseEntity.ok(Map.of(
+            "uid", user.getUid(),
+            "nom", user.getNom(),
+            "prenom", user.getPrenom(),
+            "role", user.getRole(),
+            "status", user.getStatus()
+        ));
+    }
+
+    // Endpoint temporaire pour créer un utilisateur admin (à supprimer en prod)
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody User user) {
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("message", "Utilisateur créé"));
+    }
+}
+
+
+
+/////////////🎨 PARTIE 2 — FRONTEND
+10. src/auth.js — Gestion du token
+
+
+// src/auth.js
+export const getToken = () => localStorage.getItem('token')
+export const getUser = () => JSON.parse(localStorage.getItem('user') || '{}')
+export const isAuthenticated = () => !!getToken()
+
+export const saveSession = (token, user) => {
+  localStorage.setItem('token', token)
+  localStorage.setItem('user', JSON.stringify(user))
+}
+
+export const logout = () => {
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+}
+
+////////////////////11. src/pages/LoginPage.vue
+
+
+<template>
+  <div class="min-h-screen flex items-center justify-center bg-gray-50">
+    <div class="bg-white p-8 rounded-xl shadow-md w-full max-w-md">
+      <h1 class="text-2xl font-bold text-gray-800 mb-6 text-center">
+        Portail Datalake
+      </h1>
+
+      <div v-if="error" class="bg-red-100 text-red-700 p-3 rounded mb-4">
+        {{ error }}
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">UID</label>
+        <input
+          v-model="uid"
+          type="text"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Votre identifiant"
+        />
+      </div>
+
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Mot de passe</label>
+        <input
+          v-model="password"
+          type="password"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="••••••••"
+          @keyup.enter="login"
+        />
+      </div>
+
+      <button
+        @click="login"
+        :disabled="loading"
+        class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+      >
+        {{ loading ? 'Connexion...' : 'Se connecter' }}
+      </button>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import axios from 'axios'
+import { saveSession } from '@/auth'
+import { API_BASE_URL } from '@/config'
+
+const uid = ref('')
+const password = ref('')
+const error = ref('')
+const loading = ref(false)
+const router = useRouter()
+
+async function login() {
+  error.value = ''
+  loading.value = true
+  try {
+    const res = await axios.post(`${API_BASE_URL}/api/auth/login`, {
+      uid: uid.value,
+      password: password.value
+    })
+    saveSession(res.data.token, {
+      uid: res.data.uid,
+      nom: res.data.nom,
+      prenom: res.data.prenom,
+      role: res.data.role,
+      status: res.data.status
+    })
+    router.push('/')
+  } catch (e) {
+    error.value = e.response?.data?.error || 'Erreur de connexion'
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+
+
+////////12. main.js — Modifier pour ajouter le guard et Axios
+Remplacez votre main.js existant par ceci (en conservant vos routes) :
+
+
+import { createApp } from 'vue'
+import { createRouter, createWebHistory } from 'vue-router'
+import App from './App.vue'
+import '../style.css'
+import '@vuepic/vue-datepicker/dist/main.css'
+import axios from 'axios'
+import { getToken, isAuthenticated, logout } from '@/auth'
+
+// Import des pages existantes
+import BalancePage from './pages/BalancePage.vue'
+// ... vos autres imports ...
+import LoginPage from './pages/LoginPage.vue'
+
+document.documentElement.style.fontSize = '78%'
+
+// Axios interceptor — ajoute le token automatiquement
+axios.interceptors.request.use(config => {
+  const token = getToken()
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+// Axios interceptor — redirige si token expiré
+axios.interceptors.response.use(
+  res => res,
+  err => {
+    if (err.response?.status === 401) {
+      logout()
+      router.push('/login')
+    }
+    return Promise.reject(err)
+  }
+)
+
+const routes = [
+  { path: '/login', name: 'Login', component: LoginPage, meta: { public: true } },
+  // ... collez ici toutes vos routes existantes ...
+  { path: '/Assistance', name: 'Assistance', component: AssistanceIAPage },
+  { path: '/Settings', name: 'Settings', component: SettingsPage },
+]
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes
+})
+
+// 🔒 Navigation guard — redirige vers /login si non authentifié
+router.beforeEach((to, from, next) => {
+  if (to.meta.public) return next()
+  if (!isAuthenticated()) return next('/login')
+  next()
+})
+
+const app = createApp(App)
+app.use(router)
+app.mount('#app')
+
+
+
+/////13. App.vue — Cacher le sidebar si non connecté
+
+
+<template>
+  <div class="flex h-screen bg-gray-50">
+    <!-- Sidebar seulement si connecté -->
+    <SidebarMenu v-if="isAuth" />
+
+    <main class="flex-1 overflow-y-auto">
+      <router-view />
+    </main>
+  </div>
+</template>
+
+<script setup>
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+import SidebarMenu from './components/SidebarMenu.vue'
+import { isAuthenticated } from '@/auth'
+
+const route = useRoute()
+const isAuth = computed(() => isAuthenticated() && route.name !== 'Login')
+</script>
+
+
+        
+
+
+    
