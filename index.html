@@ -1,346 +1,235 @@
 <template>
-  <div class="max-w-7xl mx-auto w-full">
+  <div class="max-w-4xl mx-auto w-full">
     <div class="mb-6">
       <h2 class="text-2xl font-semibold text-gray-900 mb-1">Explorateur de dossiers</h2>
-      <p class="text-sm text-gray-500">
-        Parcourez et gérez vos fichiers (données de démonstration — branchez votre API).
-      </p>
+      <p class="text-sm text-gray-500">Arborescence de vos fichiers.</p>
     </div>
 
-    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div class="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          :disabled="!canGoUp"
-          class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-          title="Dossier parent"
-          @click="goUp"
-        >
-          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
-          title="Actualiser"
-          @click="refresh"
-        >
-          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-        </button>
+    <!-- Recherche -->
+    <div class="relative mb-4">
+      <svg
+        class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+      <input
+        v-model.trim="recherche"
+        type="search"
+        placeholder="Rechercher dans l'arborescence…"
+        class="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-9 pr-3 text-sm"
+      />
+    </div>
 
-        <nav aria-label="Fil d'Ariane" class="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm">
-          <template v-for="(crumb, index) in breadcrumbs" :key="crumb.id">
-            <span v-if="index > 0" class="text-gray-400">/</span>
-            <button
-              type="button"
-              :class="[
-                'truncate rounded px-1.5 py-0.5 transition-colors',
-                index === breadcrumbs.length - 1
-                  ? 'font-medium text-gray-900'
-                  : 'text-blue-600 hover:bg-blue-50 hover:text-blue-700'
-              ]"
-              @click="navigateTo(crumb.id)"
+    <!-- Arborescence -->
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <ul class="divide-y divide-gray-100">
+        <li
+          v-for="ligne in lignes"
+          :key="ligne.id"
+          class="flex items-center gap-2 py-2.5 pr-3 hover:bg-gray-50/80"
+          :style="{ paddingLeft: `${ligne.profondeur * 20 + 12}px` }"
+        >
+          <!-- Chevron dossier -->
+          <button
+            v-if="ligne.type === 'folder'"
+            type="button"
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            @click="basculer(ligne.id)"
+          >
+            <svg
+              :class="['h-3.5 w-3.5 transition-transform', ouverts[ligne.id] ? 'rotate-90' : '']"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              {{ crumb.name }}
-            </button>
-          </template>
-        </nav>
-      </div>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+          <span v-else class="w-6 shrink-0" />
 
-      <div class="relative w-full sm:max-w-xs">
-        <svg
-          class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
-        </svg>
-        <input
-          v-model.trim="recherche"
-          type="search"
-          placeholder="Rechercher un fichier ou dossier…"
-          class="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-      </div>
-    </div>
+          <!-- Icône -->
+          <span
+            :class="[
+              'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+              ligne.type === 'folder' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'
+            ]"
+          >
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+              <path
+                v-if="ligne.type === 'folder'"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h4.257a1.125 1.125 0 01.97-.562l2.684-1.347a1.125 1.125 0 011.03 0l2.684 1.347a1.125 1.125 0 00.97.562H19.5A2.25 2.25 0 0121.75 12v.75m-19.5 0A2.25 2.25 0 004.5 15.75h15a2.25 2.25 0 002.25-2.25m-19.5 0v-3A2.25 2.25 0 014.5 6.75h4.257a1.125 1.125 0 01.97-.562l2.684-1.347a1.125 1.125 0 011.03 0l2.684 1.347a1.125 1.125 0 00.97.562H19.5A2.25 2.25 0 0121.75 9v3"
+              />
+              <path
+                v-else
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125V5.625a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+              />
+            </svg>
+          </span>
 
-    <div class="grid gap-4 lg:grid-cols-[240px_1fr]">
-      <!-- Arborescence -->
-      <aside class="hidden rounded-lg border border-gray-200 bg-white p-3 shadow-sm lg:block">
-        <p class="mb-2 px-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-          Arborescence
-        </p>
-        <ul class="space-y-0.5 text-sm">
-          <ExplorateurTreeNode
-            v-for="node in arbreRacine"
-            :key="node.id"
-            :node="node"
-            :current-id="currentFolderId"
-            :expanded-ids="expandedIds"
-            @toggle="toggleExpand"
-            @select="navigateTo"
-          />
-        </ul>
-      </aside>
+          <!-- Nom -->
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-sm font-medium text-gray-900">{{ ligne.name }}</p>
+            <p v-if="ligne.chemin" class="truncate text-xs text-gray-400">{{ ligne.chemin }}</p>
+          </div>
 
-      <!-- Contenu du dossier courant -->
-      <section class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-        <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-          <p class="text-sm text-gray-600">
-            <span class="font-medium text-gray-900">{{ entriesFiltrees.length }}</span>
-            élément(s)
-          </p>
-          <p v-if="selectedEntry" class="truncate text-xs text-gray-500">
-            Sélection : {{ selectedEntry.name }}
-          </p>
-        </div>
+          <!-- Infos -->
+          <span class="hidden text-xs text-gray-400 sm:block">
+            {{ ligne.type === 'file' ? formatTaille(ligne.size) : '' }}
+          </span>
 
-        <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-gray-200 text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th scope="col" class="px-4 py-3 text-left font-semibold text-gray-700">Nom</th>
-                <th scope="col" class="hidden px-4 py-3 text-left font-semibold text-gray-700 sm:table-cell">
-                  Type
-                </th>
-                <th scope="col" class="hidden px-4 py-3 text-right font-semibold text-gray-700 md:table-cell">
-                  Taille
-                </th>
-                <th scope="col" class="hidden px-4 py-3 text-left font-semibold text-gray-700 lg:table-cell">
-                  Modifié le
-                </th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-200 bg-white">
-              <tr
-                v-for="entry in entriesFiltrees"
-                :key="entry.id"
-                :class="[
-                  'cursor-pointer transition-colors',
-                  selectedEntry?.id === entry.id ? 'bg-blue-50' : 'hover:bg-gray-50/80'
-                ]"
-                @click="selectEntry(entry)"
-                @dblclick="openEntry(entry)"
-              >
-                <td class="px-4 py-3">
-                  <div class="flex items-center gap-3">
-                    <span
-                      :class="[
-                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                        entry.type === 'folder' ? 'bg-amber-50' : 'bg-gray-100'
-                      ]"
-                    >
-                      <svg
-                        class="h-4 w-4"
-                        :class="entry.type === 'folder' ? 'text-amber-600' : 'text-gray-500'"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          v-if="entry.type === 'folder'"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                        />
-                        <path
-                          v-else
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                        />
-                      </svg>
-                    </span>
-                    <span class="font-medium text-gray-900">{{ entry.name }}</span>
-                  </div>
-                </td>
-                <td class="hidden px-4 py-3 text-gray-600 sm:table-cell">
-                  {{ entry.type === 'folder' ? 'Dossier' : (entry.extension || 'Fichier').toUpperCase() }}
-                </td>
-                <td class="hidden px-4 py-3 text-right font-mono tabular-nums text-gray-700 md:table-cell">
-                  {{ entry.type === 'folder' ? '—' : formatSize(entry.size) }}
-                </td>
-                <td class="hidden px-4 py-3 font-mono tabular-nums text-gray-700 whitespace-nowrap lg:table-cell">
-                  {{ formatDate(entry.modifiedAt) }}
-                </td>
-              </tr>
-              <tr v-if="entriesFiltrees.length === 0">
-                <td colspan="4" class="px-4 py-10 text-center text-sm text-gray-500">
-                  Aucun élément ne correspond à votre recherche.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
+          <!-- Action -->
+          <button
+            v-if="ligne.type === 'folder'"
+            type="button"
+            class="shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50"
+            @click="ouvrir(ligne)"
+          >
+            Ouvrir
+          </button>
+          <button
+            v-else
+            type="button"
+            class="shrink-0 inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50"
+            @click="telecharger(ligne)"
+          >
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Télécharger
+          </button>
+        </li>
 
-    <!-- Panneau détail -->
-    <div
-      v-if="selectedEntry"
-      class="mt-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
-    >
-      <h3 class="mb-3 text-sm font-semibold text-gray-900">Détails</h3>
-      <dl class="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-        <div>
-          <dt class="text-xs font-medium uppercase tracking-wide text-gray-500">Nom</dt>
-          <dd class="mt-0.5 text-gray-900">{{ selectedEntry.name }}</dd>
-        </div>
-        <div>
-          <dt class="text-xs font-medium uppercase tracking-wide text-gray-500">Type</dt>
-          <dd class="mt-0.5 text-gray-900">
-            {{ selectedEntry.type === 'folder' ? 'Dossier' : `Fichier .${selectedEntry.extension}` }}
-          </dd>
-        </div>
-        <div v-if="selectedEntry.type === 'file'">
-          <dt class="text-xs font-medium uppercase tracking-wide text-gray-500">Taille</dt>
-          <dd class="mt-0.5 font-mono tabular-nums text-gray-900">{{ formatSize(selectedEntry.size) }}</dd>
-        </div>
-        <div>
-          <dt class="text-xs font-medium uppercase tracking-wide text-gray-500">Dernière modification</dt>
-          <dd class="mt-0.5 font-mono tabular-nums text-gray-900">{{ formatDate(selectedEntry.modifiedAt) }}</dd>
-        </div>
-      </dl>
-      <div v-if="selectedEntry.type === 'folder'" class="mt-4">
-        <button
-          type="button"
-          class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
-          @click="openEntry(selectedEntry)"
-        >
-          Ouvrir le dossier
-        </button>
-      </div>
+        <li v-if="lignes.length === 0" class="px-4 py-10 text-center text-sm text-gray-500">
+          Aucun élément trouvé.
+        </li>
+      </ul>
     </div>
   </div>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
-import { racineExplorateur } from '../data/explorateurDossiers.js'
-import ExplorateurTreeNode from './ExplorateurTreeNode.vue'
 
-function buildIndex(node, parentId = null, map = new Map()) {
-  map.set(node.id, { node, parentId })
-  if (node.children) {
-    for (const child of node.children) {
-      buildIndex(child, node.id, map)
-    }
-  }
-  return map
+// ── Données (remplacez par votre API) ──────────────────────────
+const racine = {
+  id: 'root',
+  name: 'Portail',
+  type: 'folder',
+  children: [
+    {
+      id: 'documents',
+      name: 'Documents',
+      type: 'folder',
+      children: [
+        {
+          id: 'banque',
+          name: 'Banque',
+          type: 'folder',
+          children: [
+            { id: 'f1', name: 'releve_janvier.pdf', type: 'file', extension: 'pdf', size: 245760 },
+            { id: 'f2', name: 'export_virements.csv', type: 'file', extension: 'csv', size: 18432 }
+          ]
+        },
+        {
+          id: 'assurance',
+          name: 'Assurance',
+          type: 'folder',
+          children: [
+            { id: 'f3', name: 'contrat_auto.pdf', type: 'file', extension: 'pdf', size: 512000 }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'archives',
+      name: 'Archives',
+      type: 'folder',
+      children: [
+        { id: 'f4', name: 'bilan_2025.pdf', type: 'file', extension: 'pdf', size: 2097152 }
+      ]
+    },
+    { id: 'f5', name: 'README.txt', type: 'file', extension: 'txt', size: 1024 }
+  ]
 }
 
-const index = buildIndex(racineExplorateur)
-const currentFolderId = ref('root')
-const expandedIds = ref({ root: true })
+// ── État ─────────────────────────────────────────────────────
+const ouverts = ref({ root: true })
 const recherche = ref('')
-const selectedEntry = ref(null)
 
-const arbreRacine = computed(() => [racineExplorateur])
-
-const currentFolder = computed(() => index.get(currentFolderId.value)?.node ?? racineExplorateur)
-
-const breadcrumbs = computed(() => {
-  const crumbs = []
-  let id = currentFolderId.value
-  while (id) {
-    const entry = index.get(id)
-    if (!entry) break
-    crumbs.unshift({ id: entry.node.id, name: entry.node.name })
-    id = entry.parentId
-  }
-  return crumbs
-})
-
-const canGoUp = computed(() => currentFolderId.value !== 'root')
-
-const entries = computed(() => {
-  const children = currentFolder.value.children || []
-  return [...children].sort((a, b) => {
+// ── Arborescence aplatie (sans composant récursif) ───────────
+function trier(items) {
+  return [...items].sort((a, b) => {
     if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
     return a.name.localeCompare(b.name, 'fr')
   })
+}
+
+function aplatir(noeds, profondeur = 0, liste = []) {
+  for (const item of trier(noeds)) {
+    liste.push({ ...item, profondeur })
+    if (item.type === 'folder' && ouverts.value[item.id] && item.children?.length) {
+      aplatir(item.children, profondeur + 1, liste)
+    }
+  }
+  return liste
+}
+
+function chercher(noeds, q, parents = [], result = []) {
+  for (const item of noeds) {
+    const chemin = [...parents, item.name]
+    if (item.name.toLowerCase().includes(q)) {
+      result.push({ ...item, profondeur: 0, chemin: parents.join(' / ') })
+    }
+    if (item.children) chercher(item.children, q, chemin, result)
+  }
+  return result
+}
+
+const lignes = computed(() => {
+  if (recherche.value) {
+    return chercher(racine.children, recherche.value.toLowerCase(), [racine.name])
+  }
+  return aplatir([racine])
 })
 
-const entriesFiltrees = computed(() => {
-  const q = recherche.value.toLowerCase()
-  if (!q) return entries.value
-  return entries.value.filter((e) => e.name.toLowerCase().includes(q))
-})
+// ── Actions ──────────────────────────────────────────────────
+function basculer(id) {
+  ouverts.value = { ...ouverts.value, [id]: !ouverts.value[id] }
+}
 
-function expandPathTo(id) {
-  let cursor = index.get(id)?.parentId
-  const next = { ...expandedIds.value }
-  while (cursor) {
-    next[cursor] = true
-    cursor = index.get(cursor)?.parentId
+function ouvrir(item) {
+  ouverts.value = { ...ouverts.value, [item.id]: true }
+}
+
+function telecharger(item) {
+  if (item.url) {
+    const lien = document.createElement('a')
+    lien.href = item.url
+    lien.download = item.name
+    lien.click()
+    return
   }
-  expandedIds.value = next
+  const contenu = `Fichier : ${item.name}\nTaille : ${formatTaille(item.size)}`
+  const blob = new Blob([contenu], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const lien = document.createElement('a')
+  lien.href = url
+  lien.download = item.name
+  lien.click()
+  URL.revokeObjectURL(url)
 }
 
-function navigateTo(id) {
-  if (!index.has(id)) return
-  const target = index.get(id).node
-  if (target.type !== 'folder') return
-  currentFolderId.value = id
-  selectedEntry.value = null
-  expandPathTo(id)
-}
-
-function goUp() {
-  const parentId = index.get(currentFolderId.value)?.parentId
-  if (parentId) navigateTo(parentId)
-}
-
-function selectEntry(entry) {
-  selectedEntry.value = entry
-}
-
-function openEntry(entry) {
-  if (entry.type === 'folder') {
-    navigateTo(entry.id)
-  }
-}
-
-function toggleExpand(id) {
-  expandedIds.value = {
-    ...expandedIds.value,
-    [id]: !expandedIds.value[id]
-  }
-}
-
-function refresh() {
-  recherche.value = ''
-  selectedEntry.value = null
-}
-
-function formatSize(bytes) {
-  if (bytes == null) return '—'
-  if (bytes < 1024) return `${bytes} o`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`
-}
-
-function formatDate(iso) {
-  if (!iso) return '—'
-  return new Intl.DateTimeFormat('fr-FR', {
-    dateStyle: 'short',
-    timeStyle: 'short'
-  }).format(new Date(iso))
+function formatTaille(octets) {
+  if (!octets) return '—'
+  if (octets < 1024) return `${octets} o`
+  if (octets < 1024 * 1024) return `${(octets / 1024).toFixed(1)} Ko`
+  return `${(octets / (1024 * 1024)).toFixed(1)} Mo`
 }
 </script>
