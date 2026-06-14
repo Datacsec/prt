@@ -1,4 +1,28 @@
-public Map<String, Object> listFolderTree(String directoryPrefix) {
+public class FileNode {
+    private String id;
+    private String name;
+    private String type; // "folder" ou "file"
+    private String extension;
+    private Long size;
+    private List<FileNode> children;
+
+    // Constructeurs
+    public FileNode(String id, String name, String type) {
+        this.id = id;
+        this.name = name;
+        this.type = type;
+        this.children = new ArrayList<>();
+    }
+
+    // Getters & Setters...
+}
+
+
+
+
+
+
+public FileNode listFolderTree(String directoryPrefix) {
     String prefix = (directoryPrefix != null && !directoryPrefix.isBlank() && !directoryPrefix.endsWith("/"))
             ? directoryPrefix + "/"
             : directoryPrefix;
@@ -11,34 +35,50 @@ public Map<String, Object> listFolderTree(String directoryPrefix) {
 
     ListObjectsV2Response res = s3.listObjectsV2(req);
 
-    Map<String, Object> tree = new LinkedHashMap<>();
+    // Noeud racine
+    FileNode root = new FileNode("root", "Portail", "folder");
+    Map<String, FileNode> folderMap = new LinkedHashMap<>();
+    folderMap.put("", root);
+
+    AtomicInteger fileCounter = new AtomicInteger(1);
 
     for (S3Object obj : res.contents()) {
         String key = obj.key();
-
-        // Supprimer le préfixe de base
         String relativePath = (prefix != null && key.startsWith(prefix))
                 ? key.substring(prefix.length())
                 : key;
 
         if (relativePath.isBlank()) continue;
 
-        // Décomposer le chemin en segments
         String[] parts = relativePath.split("/");
-        Map<String, Object> current = tree;
+        StringBuilder pathBuilder = new StringBuilder();
 
         for (int i = 0; i < parts.length; i++) {
             String part = parts[i];
+            String parentPath = pathBuilder.toString();
+            if (i > 0) pathBuilder.append("/");
+            pathBuilder.append(part);
+            String currentPath = pathBuilder.toString();
+
             boolean isFile = (i == parts.length - 1) && !relativePath.endsWith("/");
 
             if (isFile) {
-                current.put(part, "FILE"); // ou obj.key() pour le chemin complet
+                String ext = part.contains(".") ? part.substring(part.lastIndexOf(".") + 1) : "";
+                FileNode fileNode = new FileNode("f" + fileCounter.getAndIncrement(), part, "file");
+                fileNode.setExtension(ext);
+                fileNode.setSize(obj.size());
+                folderMap.get(parentPath).getChildren().add(fileNode);
             } else {
-                current.putIfAbsent(part, new LinkedHashMap<String, Object>());
-                current = (Map<String, Object>) current.get(part);
+                if (!folderMap.containsKey(currentPath)) {
+                    FileNode folderNode = new FileNode(currentPath.replace("/", "-"), part, "folder");
+                    folderMap.put(currentPath, folderNode);
+                    folderMap.get(parentPath).getChildren().add(folderNode);
+                }
             }
         }
     }
 
-    return tree;
+    return root;
 }
+
+
