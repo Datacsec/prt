@@ -1,150 +1,44 @@
-“””
-Étape 4 — Documentation automatique des champs via Claude
+public Map<String, Object> listFolderTree(String directoryPrefix) {
+    String prefix = (directoryPrefix != null && !directoryPrefix.isBlank() && !directoryPrefix.endsWith("/"))
+            ? directoryPrefix + "/"
+            : directoryPrefix;
 
-Ce script lit les fichiers de contexte générés à l’étape 3 et envoie chaque champ
-à Claude pour générer une documentation structurée en JSON.
+    ListObjectsV2Request req = ListObjectsV2Request.builder()
+            .bucket(bucketName)
+            .prefix(prefix)
+            .maxKeys(1000)
+            .build();
 
-Prérequis :
+    ListObjectsV2Response res = s3.listObjectsV2(req);
 
-- Avoir lancé step1 (Scalameta extraction)
-- Avoir lancé step2_dependencies.py
-- Avoir lancé step3_context.py
-- Variable d’environnement ANTHROPIC_API_KEY définie
-- pip install anthropic
+    Map<String, Object> tree = new LinkedHashMap<>();
 
-Usage :
-export ANTHROPIC_API_KEY=“sk-ant-…”
-python step4_document.py
-“””
+    for (S3Object obj : res.contents()) {
+        String key = obj.key();
 
-import os
-import json
-import time
-from pathlib import Path
-from anthropic import Anthropic
+        // Supprimer le préfixe de base
+        String relativePath = (prefix != null && key.startsWith(prefix))
+                ? key.substring(prefix.length())
+                : key;
 
-client = Anthropic(api_key=os.environ[“ANTHROPIC_API_KEY”])
+        if (relativePath.isBlank()) continue;
 
-# ============================================================
+        // Décomposer le chemin en segments
+        String[] parts = relativePath.split("/");
+        Map<String, Object> current = tree;
 
-# PROMPT TEMPLATE
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i];
+            boolean isFile = (i == parts.length - 1) && !relativePath.endsWith("/");
 
-# ============================================================
+            if (isFile) {
+                current.put(part, "FILE"); // ou obj.key() pour le chemin complet
+            } else {
+                current.putIfAbsent(part, new LinkedHashMap<String, Object>());
+                current = (Map<String, Object>) current.get(part);
+            }
+        }
+    }
 
-PROMPT_TEMPLATE = “”“Tu es expert Spark Scala et data engineering dans le secteur bancaire.
-
-Voici le code Scala qui construit un champ d’une table conformée. Ton rôle : produire une documentation métier + technique.
-
-CHAMP À DOCUMENTER : {champ}
-TYPE : {type_champ}
-DATAFRAMES SOURCES : {dataframes}
-
-CODE PERTINENT (déjà reconstitué, ne cherche pas ailleurs) :
-
-```scala
-{code}
-```
-
-Réponds STRICTEMENT en JSON avec cette structure :
-{{
-“description_metier”: “En 1-2 phrases, que représente ce champ ?”,
-“sources_donnees”: [
-{{“dataframe”: “nom_df”, “colonnes”: [“COL1”, “COL2”], “role”: “rôle dans le calcul”}}
-],
-“regle_de_gestion”: “Explication en langage naturel, étape par étape”,
-“conditions”: [
-{{“si”: “condition”, “alors”: “valeur”}}
-],
-“cas_particuliers”: [“cas 1”, “cas 2”],
-“dependances_externes”: [“MethodeX.y”, “AutreBuilder.z”],
-“niveau_confiance”: “HIGH|MEDIUM|LOW”,
-“points_ambigus”: [“ce que je ne suis pas sûr de comprendre”]
-}}
-
-IMPORTANT :
-
-- Si tu n’es pas sûr d’une règle, mets niveau_confiance=MEDIUM ou LOW
-- Ne devine pas. Liste les ambiguïtés dans “points_ambigus”
-- Reste factuel, base-toi uniquement sur le code fourni
-  “””
-
-# ============================================================
-
-# APPEL CLAUDE
-
-# ============================================================
-
-def documenter_champ(champ_dep: dict, code_contexte: str) -> dict:
-“”“Envoie un champ + son contexte à Claude et récupère la doc JSON.”””
-prompt = PROMPT_TEMPLATE.format(
-champ      = champ_dep[“champ”],
-type_champ = champ_dep[“type”],
-dataframes = “, “.join(champ_dep[“dataframes_sources”]),
-code       = code_contexte[:20000]  # safety limit
-)
-
-```
-response = client.messages.create(
-    model      = "claude-sonnet-4-5",
-    max_tokens = 2000,
-    messages   = [{"role": "user", "content": prompt}]
-)
-
-text = response.content[0].text
-# Nettoyage ```json ... ```
-text = text.replace("```json", "").replace("```", "").strip()
-
-try:
-    return json.loads(text)
-except json.JSONDecodeError:
-    return {"erreur": "parse_failed", "raw": text}
-```
-
-# ============================================================
-
-# ORCHESTRATION
-
-# ============================================================
-
-def main():
-with open(“output/dependencies.json”) as f:
-deps = json.load(f)
-
-```
-Path("output/docs").mkdir(parents=True, exist_ok=True)
-
-# Reprise sur erreur : ne pas refaire les champs déjà traités
-deja_fait = {p.stem for p in Path("output/docs").glob("*.json")}
-
-for champ_dep in deps["champs"]:
-    nom = champ_dep["champ"]
-    if nom in deja_fait:
-        continue
-    if champ_dep["nb_val_dans_chaine"] == 0:
-        continue
-
-    contexte_path = Path(f"output/contexts/{nom}.scala")
-    if not contexte_path.exists():
-        continue
-
-    print(f"📝 Documenting {nom}...")
-
-    try:
-        code = contexte_path.read_text()
-        doc = documenter_champ(champ_dep, code)
-        doc["champ"]      = nom
-        doc["type_scala"] = champ_dep["type"]
-        doc["status"]     = "generated"  # pas encore validé
-
-        with open(f"output/docs/{nom}.json", "w", encoding="utf-8") as f:
-            json.dump(doc, f, indent=2, ensure_ascii=False)
-
-        time.sleep(1)  # rate limiting
-    except Exception as e:
-        print(f"   ❌ Erreur sur {nom} : {e}")
-
-print(f"✅ Documentation générée dans output/docs/")
-```
-
-if **name** == “**main**”:
-main()
+    return tree;
+}
