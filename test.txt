@@ -1,84 +1,39 @@
-public class FileNode {
-    private String id;
-    private String name;
-    private String type; // "folder" ou "file"
-    private String extension;
-    private Long size;
-    private List<FileNode> children;
+async function downloadFile(bank, partition_date, sequence, filename) {
+  try {
+    const params = new URLSearchParams({
+      bank, partition_date, sequence, filename
+    });
 
-    // Constructeurs
-    public FileNode(String id, String name, String type) {
-        this.id = id;
-        this.name = name;
-        this.type = type;
-        this.children = new ArrayList<>();
+    const url = `${API_BASE_URL}/InssuranceFiles/downloadInssuranceResultsFile?${params}`;
+
+    // 👇 Récupérer le token
+    const token = localStorage.getItem('token')
+
+    // 👇 Utiliser fetch avec le token dans le header
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error(`Erreur HTTP: ${response.status}`)
     }
 
-    // Getters & Setters...
+    // 👇 Convertir la réponse en blob pour le téléchargement
+    const blob = await response.blob()
+    const objectUrl = window.URL.createObjectURL(blob)
+
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(objectUrl)
+
+  } catch (error) {
+    console.error('Erreur telechargement :', error)
+  }
 }
-
-
-
-
-
-
-public FileNode listFolderTree(String directoryPrefix) {
-    String prefix = (directoryPrefix != null && !directoryPrefix.isBlank() && !directoryPrefix.endsWith("/"))
-            ? directoryPrefix + "/"
-            : directoryPrefix;
-
-    ListObjectsV2Request req = ListObjectsV2Request.builder()
-            .bucket(bucketName)
-            .prefix(prefix)
-            .maxKeys(1000)
-            .build();
-
-    ListObjectsV2Response res = s3.listObjectsV2(req);
-
-    // Noeud racine
-    FileNode root = new FileNode("root", "Portail", "folder");
-    Map<String, FileNode> folderMap = new LinkedHashMap<>();
-    folderMap.put("", root);
-
-    AtomicInteger fileCounter = new AtomicInteger(1);
-
-    for (S3Object obj : res.contents()) {
-        String key = obj.key();
-        String relativePath = (prefix != null && key.startsWith(prefix))
-                ? key.substring(prefix.length())
-                : key;
-
-        if (relativePath.isBlank()) continue;
-
-        String[] parts = relativePath.split("/");
-        StringBuilder pathBuilder = new StringBuilder();
-
-        for (int i = 0; i < parts.length; i++) {
-            String part = parts[i];
-            String parentPath = pathBuilder.toString();
-            if (i > 0) pathBuilder.append("/");
-            pathBuilder.append(part);
-            String currentPath = pathBuilder.toString();
-
-            boolean isFile = (i == parts.length - 1) && !relativePath.endsWith("/");
-
-            if (isFile) {
-                String ext = part.contains(".") ? part.substring(part.lastIndexOf(".") + 1) : "";
-                FileNode fileNode = new FileNode("f" + fileCounter.getAndIncrement(), part, "file");
-                fileNode.setExtension(ext);
-                fileNode.setSize(obj.size());
-                folderMap.get(parentPath).getChildren().add(fileNode);
-            } else {
-                if (!folderMap.containsKey(currentPath)) {
-                    FileNode folderNode = new FileNode(currentPath.replace("/", "-"), part, "folder");
-                    folderMap.put(currentPath, folderNode);
-                    folderMap.get(parentPath).getChildren().add(folderNode);
-                }
-            }
-        }
-    }
-
-    return root;
-}
-
-
