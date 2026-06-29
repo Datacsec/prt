@@ -1,68 +1,57 @@
 <template>
-  <div class="flex min-h-screen bg-bmci-50">
+  <div class="login">
     <!-- Panneau présentation -->
-    <aside class="hidden lg:flex lg:w-1/2 flex-col justify-between border-r border-bmci-100 bg-white p-12">
+    <aside class="login-aside">
       <div>
-        <p class="text-xs font-medium uppercase tracking-[0.2em] text-bmci-light">Équipe Datalake · BMCI</p>
-        <h1 class="mt-6 text-4xl font-semibold tracking-tight text-gray-900">Portail</h1>
-        <p class="mt-4 max-w-sm text-base leading-relaxed text-gray-500">
+        <p class="login-label">Équipe Datalake · BMCI</p>
+        <h1 class="login-title">Portail</h1>
+        <p class="login-subtitle">
           Plateforme unifiée pour le suivi, le téléchargement de fichiers COS et l'assistance IA.
         </p>
       </div>
 
-      <ul class="space-y-4">
-        <li
-          v-for="feature in features"
-          :key="feature.title"
-          class="flex items-start gap-4 rounded-2xl border border-bmci-100 bg-bmci-50 p-5"
-        >
-          <span :class="['flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', feature.bg]">
-            <svg class="h-5 w-5" :class="feature.color" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+      <ul class="login-features">
+        <li v-for="feature in features" :key="feature.title" class="login-feature-card">
+          <span class="login-feature-icon" :style="{ background: feature.bg, color: feature.color }">
+            <svg fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" :d="feature.icon" />
             </svg>
           </span>
           <div>
-            <p class="text-sm font-semibold text-gray-900">{{ feature.title }}</p>
-            <p class="mt-0.5 text-sm leading-relaxed text-gray-500">{{ feature.desc }}</p>
+            <p class="login-feature-title">{{ feature.title }}</p>
+            <p class="login-feature-desc">{{ feature.desc }}</p>
           </div>
         </li>
       </ul>
 
-      <p class="text-xs text-gray-400">
-        Développé par l'équipe <span class="font-medium text-bmci-dark">Datalake</span>
+      <p class="login-footer">
+        Développé par l'équipe <span class="login-footer-accent">Datalake</span>
       </p>
     </aside>
 
     <!-- Formulaire -->
-    <main class="flex flex-1 flex-col items-center justify-center px-6 py-12">
-      <div class="w-full max-w-sm rounded-2xl border border-bmci-100 bg-white p-8 shadow-sm">
-        <div class="mb-8 text-center lg:text-left">
-          <p class="mb-2 text-xs font-medium uppercase tracking-[0.2em] text-bmci-light lg:hidden">
-            Équipe Datalake · BMCI
-          </p>
-          <h2 class="text-2xl font-semibold text-gray-900">Connexion</h2>
-          <p class="mt-2 text-sm text-gray-500">Accédez à votre espace Portail</p>
+    <main class="login-main">
+      <div class="login-form-card">
+        <div class="login-form-header">
+          <p class="login-label login-label-mobile">Équipe Datalake · BMCI</p>
+          <h2 class="login-form-title">Connexion</h2>
+          <p class="login-form-subtitle">Accédez à votre espace Portail</p>
         </div>
 
-        <!-- Features mobile -->
-        <ul class="mb-8 space-y-3 lg:hidden">
-          <li
-            v-for="feature in features"
-            :key="feature.title"
-            class="flex items-center gap-3 rounded-xl border border-bmci-100 bg-bmci-50 px-4 py-3"
-          >
-            <span :class="['flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', feature.bg]">
-              <svg class="h-4 w-4" :class="feature.color" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+        <ul class="login-features-mobile">
+          <li v-for="feature in features" :key="feature.title" class="login-feature-mobile">
+            <span class="login-feature-icon login-feature-icon-sm" :style="{ background: feature.bg, color: feature.color }">
+              <svg fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" :d="feature.icon" />
               </svg>
             </span>
-            <span class="text-sm font-medium text-gray-700">{{ feature.title }}</span>
+            <span>{{ feature.title }}</span>
           </li>
         </ul>
 
-        <form class="space-y-4" @submit.prevent="connecter">
+        <form class="login-form" @submit.prevent="connecter">
           <div>
-            <label for="email" class="mb-1.5 block text-sm font-medium text-gray-700">Email</label>
+            <label for="email" class="login-field-label">Email</label>
             <input
               id="email"
               v-model="email"
@@ -70,12 +59,12 @@
               required
               autocomplete="email"
               placeholder="vous@exemple.com"
-              class="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-bmci focus:outline-none focus:ring-1 focus:ring-bmci"
+              class="login-input"
             />
           </div>
 
           <div>
-            <label for="password" class="mb-1.5 block text-sm font-medium text-gray-700">Mot de passe</label>
+            <label for="password" class="login-field-label">Mot de passe</label>
             <input
               id="password"
               v-model="password"
@@ -83,22 +72,16 @@
               required
               autocomplete="current-password"
               placeholder="••••••••"
-              class="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-bmci focus:outline-none focus:ring-1 focus:ring-bmci"
+              class="login-input"
             />
           </div>
 
-          <button
-            type="submit"
-            :disabled="loading"
-            class="w-full rounded-lg bg-bmci py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-bmci-dark disabled:opacity-60"
-          >
+          <button type="submit" :disabled="loading" class="login-btn">
             {{ loading ? 'Connexion…' : 'Se connecter' }}
           </button>
         </form>
 
-        <p class="mt-8 text-center text-xs text-gray-400 lg:text-left">
-          Suivi · Téléchargements COS · Assistant IA
-        </p>
+        <p class="login-hint">Suivi · Téléchargements COS · Assistant IA</p>
       </div>
     </main>
   </div>
@@ -113,27 +96,37 @@ const email = ref('')
 const password = ref('')
 const loading = ref(false)
 
+// Couleurs BMCI (charte BNP Paribas Groupe)
+const C = {
+  green: '#008755',
+  greenDark: '#007348',
+  greenLight: '#39A87B',
+  greenPale: '#8BC8AA',
+  green50: '#eef8f3',
+  green100: '#d4ede0'
+}
+
 const features = [
   {
     title: 'Suivi',
     desc: 'Suivez l\'activité et l\'historique de vos opérations en temps réel.',
     icon: 'M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z',
-    bg: 'bg-bmci-100',
-    color: 'text-bmci-dark'
+    bg: C.green100,
+    color: C.greenDark
   },
   {
     title: 'Téléchargements',
     desc: 'Accédez et téléchargez vos fichiers depuis le Cloud Object Storage.',
     icon: 'M2.25 12.75V12A2.25 2.25 0 014.5 9.75h4.257a1.125 1.125 0 01.97-.562l2.684-1.347a1.125 1.125 0 011.03 0l2.684 1.347a1.125 1.125 0 00.97.562H19.5A2.25 2.25 0 0121.75 12v.75m-19.5 0A2.25 2.25 0 004.5 15.75h15a2.25 2.25 0 002.25-2.25m-19.5 0v-3A2.25 2.25 0 014.5 6.75h4.257a1.125 1.125 0 01.97-.562l2.684-1.347a1.125 1.125 0 011.03 0l2.684 1.347a1.125 1.125 0 00.97.562H19.5A2.25 2.25 0 0121.75 9v3',
-    bg: 'bg-bmci-50',
-    color: 'text-bmci'
+    bg: C.green50,
+    color: C.green
   },
   {
     title: 'Assistant IA',
     desc: 'Interagissez avec l\'intelligence artificielle pour obtenir de l\'aide.',
     icon: 'M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z',
-    bg: 'bg-bmci-pale/30',
-    color: 'text-bmci-light'
+    bg: 'rgba(139, 200, 170, 0.3)',
+    color: C.greenLight
   }
 ]
 
@@ -144,3 +137,272 @@ async function connecter() {
   loading.value = false
 }
 </script>
+
+<style scoped>
+.login {
+  --bmci: #008755;
+  --bmci-dark: #007348;
+  --bmci-light: #39A87B;
+  --bmci-50: #eef8f3;
+  --bmci-100: #d4ede0;
+  --text: #111827;
+  --text-muted: #6b7280;
+  --text-light: #9ca3af;
+  --white: #ffffff;
+  --border: #d1d5db;
+
+  display: flex;
+  min-height: 100vh;
+  background: var(--bmci-50);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.login-aside {
+  display: none;
+  width: 50%;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 3rem;
+  background: var(--white);
+  border-right: 1px solid var(--bmci-100);
+}
+
+.login-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--bmci-light);
+}
+
+.login-label-mobile {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.login-title {
+  margin-top: 1.5rem;
+  font-size: 2.25rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: var(--text);
+}
+
+.login-subtitle {
+  margin-top: 1rem;
+  max-width: 24rem;
+  font-size: 1rem;
+  line-height: 1.625;
+  color: var(--text-muted);
+}
+
+.login-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.login-feature-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem;
+  border-radius: 1rem;
+  border: 1px solid var(--bmci-100);
+  background: var(--bmci-50);
+}
+
+.login-feature-icon {
+  display: flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+}
+
+.login-feature-icon svg {
+  height: 1.25rem;
+  width: 1.25rem;
+}
+
+.login-feature-icon-sm {
+  height: 2rem;
+  width: 2rem;
+  border-radius: 0.5rem;
+}
+
+.login-feature-icon-sm svg {
+  height: 1rem;
+  width: 1rem;
+}
+
+.login-feature-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.login-feature-desc {
+  margin-top: 0.125rem;
+  font-size: 0.875rem;
+  line-height: 1.625;
+  color: var(--text-muted);
+}
+
+.login-footer {
+  font-size: 0.75rem;
+  color: var(--text-light);
+}
+
+.login-footer-accent {
+  font-weight: 500;
+  color: var(--bmci-dark);
+}
+
+.login-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+}
+
+.login-form-card {
+  width: 100%;
+  max-width: 24rem;
+  padding: 2rem;
+  border-radius: 1rem;
+  border: 1px solid var(--bmci-100);
+  background: var(--white);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.login-form-header {
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.login-form-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.login-form-subtitle {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.login-features-mobile {
+  list-style: none;
+  margin: 0 0 2rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.login-feature-mobile {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--bmci-100);
+  background: var(--bmci-50);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.login-field-label {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.login-input {
+  width: 100%;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text);
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  outline: none;
+}
+
+.login-input::placeholder {
+  color: var(--text-light);
+}
+
+.login-input:focus {
+  border-color: var(--bmci);
+  box-shadow: 0 0 0 1px var(--bmci);
+}
+
+.login-btn {
+  width: 100%;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--white);
+  background: var(--bmci);
+  border: none;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.login-btn:hover:not(:disabled) {
+  background: var(--bmci-dark);
+}
+
+.login-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-hint {
+  margin-top: 2rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-light);
+}
+
+@media (min-width: 1024px) {
+  .login-aside {
+    display: flex;
+  }
+
+  .login-label-mobile,
+  .login-features-mobile {
+    display: none;
+  }
+
+  .login-form-header {
+    text-align: left;
+  }
+
+  .login-hint {
+    text-align: left;
+  }
+}
+</style>
