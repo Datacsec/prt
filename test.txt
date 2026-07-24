@@ -1,3 +1,37 @@
+@Bean
+public OpenSaml4AuthenticationProvider samlAuthenticationProvider() {
+    OpenSaml4AuthenticationProvider provider = new OpenSaml4AuthenticationProvider();
+
+    // 1. Validateur de réponse (déjà en place)
+    Converter<OpenSaml4AuthenticationProvider.ResponseToken, Saml2ResponseValidatorResult> respDefault =
+        OpenSaml4AuthenticationProvider.createDefaultResponseValidator();
+    provider.setResponseValidator(token -> {
+        Saml2ResponseValidatorResult r = respDefault.convert(token);
+        return Saml2ResponseValidatorResult.failure(
+            r.getErrors().stream()
+             .filter(e -> !"invalid_in_response_to".equals(e.getErrorCode()))
+             .collect(Collectors.toList()));
+    });
+
+    // 2. Validateur d'assertion (nouveau)
+    Converter<OpenSaml4AuthenticationProvider.AssertionToken, Saml2ResponseValidatorResult> assertDefault =
+        OpenSaml4AuthenticationProvider.createDefaultAssertionValidator();
+    provider.setAssertionValidator(token -> {
+        Saml2ResponseValidatorResult r = assertDefault.convert(token);
+        return Saml2ResponseValidatorResult.failure(
+            r.getErrors().stream()
+             .filter(e -> !"invalid_assertion".equals(e.getErrorCode()))
+             .collect(Collectors.toList()));
+    });
+
+    return provider;
+}
+
+
+
+
+
+
 
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.ProviderManager;
