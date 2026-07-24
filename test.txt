@@ -1,3 +1,14 @@
+
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.saml2.core.Saml2Error;
+import org.springframework.security.saml2.core.Saml2ResponseValidatorResult;
+import org.springframework.security.saml2.provider.service.authentication.OpenSaml4AuthenticationProvider;
+import java.util.Collection;
+import java.util.stream.Collectors;
+
+
+
 .saml2Login(saml2 -> saml2
     .authenticationManager(new ProviderManager(samlAuthenticationProvider()))
     .successHandler(samlSuccessHandler)
