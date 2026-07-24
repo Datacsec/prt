@@ -1,3 +1,26 @@
+
+@Bean
+public OpenSaml4AuthenticationProvider samlAuthenticationProvider() {
+    OpenSaml4AuthenticationProvider provider = new OpenSaml4AuthenticationProvider();
+
+    Converter<OpenSaml4AuthenticationProvider.ResponseToken, Saml2ResponseValidatorResult> defaultValidator =
+        OpenSaml4AuthenticationProvider.createDefaultResponseValidator();
+
+    provider.setResponseValidator(token -> {
+        Saml2ResponseValidatorResult result = defaultValidator.convert(token);
+        Collection<Saml2Error> filtered = result.getErrors().stream()
+            .filter(e -> !"invalid_in_response_to".equals(e.getErrorCode()))
+            .collect(Collectors.toList());
+        return Saml2ResponseValidatorResult.failure(filtered);
+    });
+
+    return provider;
+}
+
+
+
+
+
 <template>
   <div class="login">
     <!-- Panneau présentation -->
