@@ -1,3 +1,12 @@
+.saml2Login(saml2 -> saml2
+    .authenticationManager(new ProviderManager(samlAuthenticationProvider()))
+    .successHandler(samlSuccessHandler)
+    .failureHandler((request, response, exception) -> {
+        System.out.println("### SAML FAILURE ###");
+        exception.printStackTrace();
+        response.sendRedirect("/portailApi/login?error");
+    })
+)
 
 @Bean
 public OpenSaml4AuthenticationProvider samlAuthenticationProvider() {
