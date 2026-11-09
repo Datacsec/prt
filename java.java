@@ -80,19 +80,25 @@ List<ControleHistory> findDernierMoisByDepartement(
 
 ////////
 
-@Query("""
-    SELECT DISTINCT h FROM ControleHistory h
-    LEFT JOIN FETCH h.cheminsS3
-    WHERE h.departmentDepartement = :departement
-      AND (:direction IS NULL OR h.departmentDirection = :direction)
-      AND h.moisControle = (
-          SELECT MAX(h2.moisControle) FROM ControleHistory h2
-          WHERE h2.departmentDepartement = :departement
-            AND (:direction IS NULL OR h2.departmentDirection = :direction))
-    ORDER BY h.controleId, h.departmentEntity
-""")
-List<ControleHistory> findDernierMoisByDepartement(
-        @Param("departement") String departement,
-        @Param("direction") String direction);
+@Transactional(readOnly = true)
+public List<ControleHistoryResponse> getDernierMoisByDepartement(String departement,
+                                                                 String direction) {
+    return historyRepository.findDernierMoisByDepartement(departement, direction)
+            .stream()
+            .map(ControleHistoryResponse::from)
+            .toList();
+}
+
+
+///////
+
+
+@GetMapping("/dernier-mois")
+public List<ControleHistoryResponse> dernierMois(
+        @RequestParam String departement,
+        @RequestParam(required = false) String direction) {
+    return service.getDernierMoisByDepartement(departement, direction);
+}
+
 
 
