@@ -1,0 +1,3 @@
+curl -G "http://localhost:9443/HistoriqueApi/dernier-mois" \
+  --data-urlencode "departement=DPAC" \
+  --data-urlencode "direction=APAC Comptabilité"
