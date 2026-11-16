@@ -1,3 +1,11 @@
-const i = controls.value.findIndex((c) => c.id === data.id)
-if (i !== -1) controls.value[i] = data
-selected.value = data
+<div>
+  <label class="mb-1 block text-sm font-medium text-slate-700">Délais par rapport à l'arrêté *</label>
+  <div v-for="(d, i) in form.delais" :key="i" class="mb-2 flex items-center gap-2">
+    <input v-model.number="form.delais[i]" type="number" step="1"
+      class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+    <button v-if="form.delais.length > 1" type="button"
+      class="text-sm text-red-600" @click="removeDelai(i)">Retirer</button>
+  </div>
+  <button v-if="form.delais.length < 3" type="button"
+    class="text-sm text-blue-600 hover:underline" @click="addDelai">+ Ajouter un délai</button>
+</div>
